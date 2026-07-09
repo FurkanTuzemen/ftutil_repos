@@ -79,10 +79,10 @@ Run PowerShell as Administrator. Works on both Windows PowerShell 5.1 and PowerS
 7. Ship a `RUNNING.md` next to the scripts in both `linux/` and `windows/` with the exact run steps (the `_template` already includes them) — the Windows one must cover PowerShell 7.
 8. If a project sets up something you connect to or use (a server, a service), **print the access details at the end of the install** and ship a standalone `connection-info.ps1` / `connection-info.sh` next to the scripts so those details can be reprinted any time without re-running the installer. See `openssh/` for the pattern.
 
-## Planned projects
+## Projects
 
-- [x] `openssh` — install/configure OpenSSH server + client (Linux packages; Windows via winget)
-- [ ] `docker` — install the Docker engine (host-level on Linux; no nested Docker)
-- [ ] `git` — install Git
+- [x] `openssh` — install/configure OpenSSH server + client (Linux packages; Windows via winget), plus key-auth helpers and connection info.
+- [x] `docker` — install Docker (Docker Engine host-level on Linux via `get.docker.com`; Docker Desktop on Windows via winget).
+- [x] `git` — install Git (Linux packages; Windows via winget).
 
 More will be added following the same convention above.
