@@ -56,3 +56,8 @@ else
 fi
 
 log "Done. Server: $(command -v sshd || echo 'sshd (see distro path)'); Client: $(command -v ssh)"
+
+# Print how to connect. Failure here must not fail the install.
+if [[ -f "$SCRIPT_DIR/connection-info.sh" ]]; then
+    bash "$SCRIPT_DIR/connection-info.sh" || log "Run ./connection-info.sh manually to see how to connect."
+fi

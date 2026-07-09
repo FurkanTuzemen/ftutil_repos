@@ -43,6 +43,22 @@ Requires winget (`App Installer` from the Microsoft Store). Under PowerShell 7 t
 
 Full run steps (elevation, execution policy, PowerShell 7 one-liner): [`windows/RUNNING.md`](windows/RUNNING.md).
 
+## Connection details
+
+Both installers **print how to SSH into the machine at the end** — user, hostname, the reachable IPv4 addresses (auto-labeled LAN vs Tailscale), the listening port, and ready-to-copy `ssh` commands.
+
+To reprint them any time (no admin/root needed):
+
+```powershell
+# Windows
+.\connection-info.ps1
+```
+
+```bash
+# Linux
+./connection-info.sh
+```
+
 ## Prerequisites
 
 - Linux: root/sudo, a supported package manager.

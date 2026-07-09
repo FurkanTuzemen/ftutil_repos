@@ -18,6 +18,7 @@ Reproducible bootstrap/automation scripts to set up tools (OpenSSH, Docker, Git,
 - **Bash:** start with `set -euo pipefail`; source `lib/linux/common.sh` for `log` / `require_root` / `command_exists` / `detect_distro`. Keep the executable bit with `git update-index --chmod=+x <script>.sh` (the repo is authored on Windows, which doesn't track it).
 - **PowerShell:** start with `#Requires -Version 5.1` + `#Requires -RunAsAdministrator`; set `$ErrorActionPreference = 'Stop'`; import `lib/windows/Common.psm1` for `Write-Log` / `Test-CommandExists` / `Assert-IsAdmin`. **Must run on both Windows PowerShell 5.1 and PowerShell 7+ (`pwsh`).**
 - **Run manual:** every project ships a `RUNNING.md` **next to its scripts** (in `linux/` and `windows/`) with exact run steps — the Windows one includes PowerShell 7 instructions.
+- **Post-install access info:** if a project sets up something you connect to/use, the installer **prints the access details at the end** and the project ships a standalone `connection-info.ps1` / `connection-info.sh` (no admin/root required) to reprint them on demand. `openssh/` is the reference: it prints user/hostname/reachable IPs (LAN vs Tailscale)/port and ready-to-copy `ssh` commands.
 - **No secrets** committed; scripts must be safe to run unattended.
 - `.gitattributes` forces **LF** on `*.sh` and **CRLF** on `*.ps1`.
 

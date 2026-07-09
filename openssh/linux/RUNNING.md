@@ -9,6 +9,14 @@ chmod +x bootstrap.sh    # only if the executable bit didn't survive the clone
 sudo ./bootstrap.sh
 ```
 
+## Reprint connection details
+
+The install prints how to SSH in at the end. To show it again any time (no root needed):
+
+```bash
+./connection-info.sh
+```
+
 ## Notes
 
 - Must run as **root** — the script re-checks and exits otherwise. Use `sudo`.

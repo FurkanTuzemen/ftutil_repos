@@ -77,6 +77,7 @@ Run PowerShell as Administrator. Works on both Windows PowerShell 5.1 and PowerS
 5. No secrets/credentials committed — scripts should be safe to run unattended.
 6. Document what the project installs, prerequisites, and exact usage in its own `README.md`.
 7. Ship a `RUNNING.md` next to the scripts in both `linux/` and `windows/` with the exact run steps (the `_template` already includes them) — the Windows one must cover PowerShell 7.
+8. If a project sets up something you connect to or use (a server, a service), **print the access details at the end of the install** and ship a standalone `connection-info.ps1` / `connection-info.sh` next to the scripts so those details can be reprinted any time without re-running the installer. See `openssh/` for the pattern.
 
 ## Planned projects
 

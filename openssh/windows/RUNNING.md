@@ -33,6 +33,14 @@ Start-Process pwsh -Verb RunAs -ArgumentList '-ExecutionPolicy','Bypass','-File'
 
 Same steps — launch "Windows PowerShell" as Administrator instead of pwsh.
 
+## Reprint connection details
+
+The install prints how to SSH in at the end. To show it again any time (no admin needed):
+
+```powershell
+.\connection-info.ps1
+```
+
 ## Notes
 
 - Under PS7 the firewall step loads the `NetSecurity` module through the Windows compatibility layer and may print a one-time `WinPSCompatSession` warning — this is expected and harmless.

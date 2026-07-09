@@ -98,4 +98,12 @@ if (-not (Get-NetFirewallRule -Name $ruleName -ErrorAction SilentlyContinue)) {
     Write-Log "Firewall rule '$ruleName' already exists"
 }
 
-Write-Log "Done. Client: $(Join-Path $sshDir 'ssh.exe'); Server listening on TCP $Port"
+Write-Log "Done."
+
+# Print how to connect. Failure here must not fail the install.
+try {
+    & (Join-Path $PSScriptRoot 'connection-info.ps1')
+} catch {
+    Write-Log "Could not print connection info: $($_.Exception.Message)"
+    Write-Log "Run .\connection-info.ps1 manually to see how to connect."
+}
