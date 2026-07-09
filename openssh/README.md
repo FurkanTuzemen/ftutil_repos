@@ -29,7 +29,13 @@ cd C:\ftutil_repos\openssh\windows
 .\install.ps1            # or:  .\install.ps1 -Port 2222
 ```
 
-Run from an elevated (Administrator) PowerShell session. Requires winget (`App Installer` from the Microsoft Store).
+Run from an **elevated (Administrator)** session. Works on both Windows PowerShell 5.1 and PowerShell 7+ — with pwsh:
+
+```powershell
+pwsh -File .\install.ps1
+```
+
+Requires winget (`App Installer` from the Microsoft Store). Under PowerShell 7 the firewall step loads the `NetSecurity` module through the Windows compatibility layer and may print a one-time WinPSCompatSession warning — this is expected and harmless.
 
 ## Prerequisites
 

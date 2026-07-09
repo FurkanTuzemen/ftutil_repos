@@ -1,3 +1,4 @@
+#Requires -Version 5.1
 #Requires -RunAsAdministrator
 <#
 .SYNOPSIS
@@ -6,6 +7,11 @@
     Installs the Win32-OpenSSH build (client + server) with winget, registers
     and starts the sshd service, and opens the firewall for inbound SSH.
     Idempotent: safe to re-run on an already-configured machine.
+
+    Runs on both Windows PowerShell 5.1 and PowerShell 7+ (pwsh). Under PS7 the
+    NetSecurity firewall cmdlets load via the Windows compatibility layer, which
+    may emit a one-time "loaded in Windows PowerShell using WinPSCompatSession"
+    warning; that is benign and does not stop the script.
 .EXAMPLE
     git clone <repo-url> C:\ftutil_repos
     cd C:\ftutil_repos\openssh\windows

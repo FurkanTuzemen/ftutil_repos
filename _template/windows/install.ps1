@@ -1,9 +1,11 @@
+#Requires -Version 5.1
 #Requires -RunAsAdministrator
 <#
 .SYNOPSIS
     Bootstrap: <PROJECT_NAME> (Windows)
 .DESCRIPTION
     Must be idempotent: safe to run again on a machine that's already set up.
+    Runs on both Windows PowerShell 5.1 and PowerShell 7+ (pwsh).
 .EXAMPLE
     git clone <repo-url> C:\ftutil_repos
     cd C:\ftutil_repos\<project>\windows

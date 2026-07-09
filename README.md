@@ -68,7 +68,7 @@ Run PowerShell as Administrator.
 1. Copy `_template/` to `<project>/` and fill in the TODOs.
 2. Scripts must be **idempotent**: check whether the tool is already installed/configured before acting, and exit cleanly if so.
 3. Bash: start with `set -euo pipefail`, source `lib/linux/common.sh` for logging/helpers.
-4. PowerShell: `$ErrorActionPreference = 'Stop'`, import `lib/windows/Common.psm1` for logging/helpers.
+4. PowerShell: `$ErrorActionPreference = 'Stop'`, import `lib/windows/Common.psm1` for logging/helpers. Scripts must run on both Windows PowerShell 5.1 and PowerShell 7+ (`pwsh`) — start with `#Requires -Version 5.1`.
 5. No secrets/credentials committed — scripts should be safe to run unattended.
 6. Document what the project installs, prerequisites, and exact usage in its own `README.md`.
 
