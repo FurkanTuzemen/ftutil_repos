@@ -61,7 +61,7 @@ To reprint them any time (no admin/root needed):
 
 ## Key-based authentication (passwordless login)
 
-Helper scripts live next to the installers. All are idempotent.
+Helper scripts live next to the installers. All are idempotent. **For a full client/server walkthrough see [`KEY-AUTH-GUIDE.md`](KEY-AUTH-GUIDE.md).**
 
 **On the client** (the machine you connect *from*) — generate a key pair and print the public key:
 
