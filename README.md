@@ -84,5 +84,6 @@ Run PowerShell as Administrator. Works on both Windows PowerShell 5.1 and PowerS
 - [x] `openssh` — install/configure OpenSSH server + client (Linux packages; Windows via winget), plus key-auth helpers and connection info.
 - [x] `docker` — install Docker (Docker Engine host-level on Linux via `get.docker.com`; Docker Desktop on Windows via winget).
 - [x] `git` — install Git (Linux packages; Windows via winget).
+- [x] `bitwarden` — install the Bitwarden client (CLI always; desktop app on graphical systems). Self-hosted Vaultwarden documented under `bitwarden/selfhosted/` but not implemented yet.
 
 More will be added following the same convention above.
