@@ -85,6 +85,19 @@ The **Windows** authorize script handles the OpenSSH admin quirk automatically: 
 
 On **Linux** the script appends to the target user's `~/.ssh/authorized_keys` with `700`/`600` perms (`--user <name>` + `sudo` to authorize for another account).
 
+**Change a key's passphrase** without changing the key (public key stays the same, so **no re-authorization** is needed). Interactive by default:
+
+```powershell
+.\remove-key-passphrase.ps1     # strip the passphrase (loads with no prompt)
+.\set-key-passphrase.ps1        # add or change a passphrase
+```
+```bash
+./remove-key-passphrase.sh
+./set-key-passphrase.sh
+```
+
+Pass `-Type rsa` / `--type rsa` or `-Path` / `--path` for a non-default key. A passphrase-less key is convenient but means anyone with the file can use it — prefer keeping the passphrase and caching it once with `ssh-add`.
+
 **Delete a key pair** (private + public + cert, and drop it from `ssh-agent`) with `remove-ssh-key.ps1` / `remove-ssh-key.sh`. Irreversible, so it lists the files and confirms first:
 
 ```powershell
