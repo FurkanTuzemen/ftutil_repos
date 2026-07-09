@@ -59,6 +59,34 @@ To reprint them any time (no admin/root needed):
 ./connection-info.sh
 ```
 
+## Key-based authentication (passwordless login)
+
+Helper scripts live next to the installers. All are idempotent.
+
+**On the client** (the machine you connect *from*) — generate a key pair and print the public key:
+
+```powershell
+.\new-ssh-key.ps1                 # Windows; -NoPassphrase to skip the passphrase prompt
+```
+```bash
+./new-ssh-key.sh                  # Linux;  --no-passphrase to skip the prompt
+```
+
+**On the server** (the machine you connect *to*) — authorize that public key:
+
+```powershell
+.\authorize-ssh-key.ps1 "ssh-ed25519 AAAA... you@client"
+```
+```bash
+./authorize-ssh-key.sh "ssh-ed25519 AAAA... you@client"
+```
+
+The **Windows** authorize script handles the OpenSSH admin quirk automatically: accounts in the **Administrators** group are authorized via the global `C:\ProgramData\ssh\administrators_authorized_keys` (not `~\.ssh\authorized_keys`), and it locks that file's ACL to **SYSTEM + Administrators** as `sshd` requires — otherwise the keys are silently ignored. Authorizing an admin account needs an **elevated** session. Use `-Scope User|Admin` to force the target, `-User <name>` for another account, or `-PublicKeyPath <file.pub>`.
+
+On **Linux** the script appends to the target user's `~/.ssh/authorized_keys` with `700`/`600` perms (`--user <name>` + `sudo` to authorize for another account).
+
+Once keys work you can harden the server by disabling password auth (`PasswordAuthentication no` in `sshd_config`) — do this only after confirming key login works, so you don't lock yourself out.
+
 ## Prerequisites
 
 - Linux: root/sudo, a supported package manager.

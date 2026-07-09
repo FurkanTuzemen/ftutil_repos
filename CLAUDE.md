@@ -19,6 +19,11 @@ Reproducible bootstrap/automation scripts to set up tools (OpenSSH, Docker, Git,
 - **PowerShell:** start with `#Requires -Version 5.1` + `#Requires -RunAsAdministrator`; set `$ErrorActionPreference = 'Stop'`; import `lib/windows/Common.psm1` for `Write-Log` / `Test-CommandExists` / `Assert-IsAdmin`. **Must run on both Windows PowerShell 5.1 and PowerShell 7+ (`pwsh`).**
 - **Run manual:** every project ships a `RUNNING.md` **next to its scripts** (in `linux/` and `windows/`) with exact run steps — the Windows one includes PowerShell 7 instructions.
 - **Post-install access info:** if a project sets up something you connect to/use, the installer **prints the access details at the end** and the project ships a standalone `connection-info.ps1` / `connection-info.sh` (no admin/root required) to reprint them on demand. `openssh/` is the reference: it prints user/hostname/reachable IPs (LAN vs Tailscale)/port and ready-to-copy `ssh` commands.
+
+## openssh notes (non-obvious details)
+
+- **Windows key auth:** accounts in the Administrators group are authorized via the GLOBAL `C:\ProgramData\ssh\administrators_authorized_keys` (per sshd_config's `Match Group administrators`), NOT `~\.ssh\authorized_keys`. That file must be owned by Administrators/SYSTEM and writable only by them or `sshd` silently ignores it. `authorize-ssh-key.ps1` handles this; it uses **`icacls`** (not `Set-Acl`) for the ACL because `Set-Acl` on an already-protected file tries to write the SACL and fails with `SeSecurityPrivilege`.
+- **Empty passphrase:** `-N ''` in `new-ssh-key.ps1` is reliable under PowerShell 7; on Windows PowerShell 5.1 the empty arg can be dropped (ssh-keygen then prompts). Default is to prompt, which works everywhere.
 - **No secrets** committed; scripts must be safe to run unattended.
 - `.gitattributes` forces **LF** on `*.sh` and **CRLF** on `*.ps1`.
 
