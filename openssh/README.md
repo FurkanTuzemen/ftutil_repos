@@ -94,6 +94,23 @@ On **Linux** the script appends to the target user's `~/.ssh/authorized_keys` wi
 ./remove-ssh-key.sh            # --yes to skip prompt, --all for every id_* pair
 ```
 
+### Revoking access on the server
+
+To manage which keys the **server** trusts (its `authorized_keys`, or the Windows admin file), use these — they resolve the right file, preserve its ACL/permissions, and confirm before deleting:
+
+```powershell
+.\remove-authorized-key.ps1                       # list authorized keys (index, fingerprint, comment)
+.\remove-authorized-key.ps1 -Comment furka@laptop # revoke one (also -Index N / -Match <s> / -PublicKey "<line>")
+.\remove-all-authorized-keys.ps1                  # revoke ALL keys (empties the file, keeps its ACL)
+```
+```bash
+./remove-authorized-key.sh                        # list
+./remove-authorized-key.sh --comment furka@laptop # revoke one (also --index N / --match <s> / --key "<line>")
+./remove-all-authorized-keys.sh                   # revoke ALL keys
+```
+
+No `sshd` restart is needed — it reads `authorized_keys` on each new connection, so a revoked key stops working immediately. (`remove-ssh-key` above deletes a *client's own* key pair; these remove *authorized* keys on a *server*.)
+
 Once keys work you can harden the server by disabling password auth (`PasswordAuthentication no` in `sshd_config`) — do this only after confirming key login works, so you don't lock yourself out.
 
 ## Prerequisites
