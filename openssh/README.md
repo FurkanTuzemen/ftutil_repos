@@ -85,6 +85,15 @@ The **Windows** authorize script handles the OpenSSH admin quirk automatically: 
 
 On **Linux** the script appends to the target user's `~/.ssh/authorized_keys` with `700`/`600` perms (`--user <name>` + `sudo` to authorize for another account).
 
+**Delete a key pair** (private + public + cert, and drop it from `ssh-agent`) with `remove-ssh-key.ps1` / `remove-ssh-key.sh`. Irreversible, so it lists the files and confirms first:
+
+```powershell
+.\remove-ssh-key.ps1            # -WhatIf to preview, -Confirm:$false to skip prompt, -All for every id_* pair
+```
+```bash
+./remove-ssh-key.sh            # --yes to skip prompt, --all for every id_* pair
+```
+
 Once keys work you can harden the server by disabling password auth (`PasswordAuthentication no` in `sshd_config`) — do this only after confirming key login works, so you don't lock yourself out.
 
 ## Prerequisites
