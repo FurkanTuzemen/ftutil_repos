@@ -15,6 +15,8 @@ cd ~/ftutil_repos/openssh/linux
 sudo ./bootstrap.sh
 ```
 
+Full run steps: [`linux/RUNNING.md`](linux/RUNNING.md).
+
 ## Windows (`windows/install.ps1`)
 
 Native install via **winget** (`Microsoft.OpenSSH.Beta` — the Win32-OpenSSH build, which ships both `ssh.exe` client and `sshd.exe` server). No Docker.
@@ -36,6 +38,8 @@ pwsh -File .\install.ps1
 ```
 
 Requires winget (`App Installer` from the Microsoft Store). Under PowerShell 7 the firewall step loads the `NetSecurity` module through the Windows compatibility layer and may print a one-time WinPSCompatSession warning — this is expected and harmless.
+
+Full run steps (elevation, execution policy, PowerShell 7 one-liner): [`windows/RUNNING.md`](windows/RUNNING.md).
 
 ## Prerequisites
 

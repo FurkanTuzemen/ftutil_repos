@@ -26,19 +26,24 @@ ftutil_repos/
 ├── <project>/                  # one folder per tool, e.g. openssh, docker, git
 │   ├── linux/
 │   │   ├── bootstrap.sh        # host-level install, idempotent, run via git clone + ./bootstrap.sh
+│   │   ├── RUNNING.md          # exact run steps for this platform, next to the script
 │   │   └── docker-compose.yml  # optional — only if the tool runs containerized instead
 │   ├── windows/
-│   │   └── install.ps1         # PowerShell install/config, no Docker
+│   │   ├── install.ps1         # PowerShell install/config, no Docker
+│   │   └── RUNNING.md          # exact run steps, incl. PowerShell 7 instructions
 │   └── README.md                # what it installs, prerequisites, usage
 ├── lib/
 │   ├── linux/common.sh         # shared bash helpers (logging, root check, command_exists, distro detect)
 │   └── windows/Common.psm1     # shared PowerShell helpers (logging, admin check, command exists)
 ├── _template/                   # copy this folder to scaffold a new project
-│   ├── linux/bootstrap.sh
-│   ├── windows/install.ps1
+│   ├── linux/{bootstrap.sh, RUNNING.md}
+│   ├── windows/{install.ps1, RUNNING.md}
 │   └── README.md
+├── CLAUDE.md                    # repo conventions/decisions for automated sessions
 └── README.md                    # this file
 ```
+
+Each project ships a **`RUNNING.md` right next to its scripts** with the exact commands to run them — the Windows one covers running under **PowerShell 7 (`pwsh`)** as well as Windows PowerShell 5.1.
 
 ## Usage
 
@@ -61,7 +66,7 @@ cd C:\ftutil_repos\<project>\windows
 .\install.ps1
 ```
 
-Run PowerShell as Administrator.
+Run PowerShell as Administrator. Works on both Windows PowerShell 5.1 and PowerShell 7+ (`pwsh`) — see each project's `windows/RUNNING.md` for the full PowerShell 7 walkthrough (elevation, execution policy, one-liner).
 
 ## Conventions for adding a new project
 
@@ -71,10 +76,11 @@ Run PowerShell as Administrator.
 4. PowerShell: `$ErrorActionPreference = 'Stop'`, import `lib/windows/Common.psm1` for logging/helpers. Scripts must run on both Windows PowerShell 5.1 and PowerShell 7+ (`pwsh`) — start with `#Requires -Version 5.1`.
 5. No secrets/credentials committed — scripts should be safe to run unattended.
 6. Document what the project installs, prerequisites, and exact usage in its own `README.md`.
+7. Ship a `RUNNING.md` next to the scripts in both `linux/` and `windows/` with the exact run steps (the `_template` already includes them) — the Windows one must cover PowerShell 7.
 
 ## Planned projects
 
-- [ ] `openssh` — install/configure OpenSSH (server)
+- [x] `openssh` — install/configure OpenSSH server + client (Linux packages; Windows via winget)
 - [ ] `docker` — install the Docker engine (host-level on Linux; no nested Docker)
 - [ ] `git` — install Git
 

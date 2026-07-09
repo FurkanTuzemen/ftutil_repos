@@ -4,6 +4,8 @@ Status: template — copy this folder to `<project-name>/` at the repo root and 
 
 One-line description of what this installs/configures.
 
+Run steps live next to the scripts: [`linux/RUNNING.md`](linux/RUNNING.md) and [`windows/RUNNING.md`](windows/RUNNING.md).
+
 ## Linux
 
 `linux/bootstrap.sh` — host-level install (or `linux/docker-compose.yml` if this tool runs containerized instead). Reproducible across a Raspberry Pi fleet via:
