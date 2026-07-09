@@ -18,14 +18,28 @@
     NetSecurity firewall cmdlets load via the Windows compatibility layer, which
     may emit a one-time "loaded in Windows PowerShell using WinPSCompatSession"
     warning; that is benign and does not stop the script.
+
+    It also sets the SSH DEFAULT SHELL. Windows OpenSSH otherwise drops you into
+    cmd.exe; -DefaultShell pwsh (the default) makes new SSH sessions land in
+    PowerShell 7 instead, if pwsh is installed.
+.PARAMETER Port
+    Inbound TCP port to open for sshd (default 22).
+.PARAMETER DefaultShell
+    Which shell sshd hands out: pwsh (PowerShell 7, default), powershell (Windows
+    PowerShell 5.1), cmd (revert to the built-in default), or keep (don't touch).
+    'pwsh' falls back to leaving the default if PowerShell 7 isn't installed.
 .EXAMPLE
     git clone <repo-url> C:\ftutil_repos
     cd C:\ftutil_repos\openssh\windows
     .\install.ps1
+.EXAMPLE
+    .\install.ps1 -DefaultShell keep      # leave the SSH shell as-is
 #>
 [CmdletBinding()]
 param(
-    [int]$Port = 22
+    [int]$Port = 22,
+    [ValidateSet('pwsh', 'powershell', 'cmd', 'keep')]
+    [string]$DefaultShell = 'pwsh'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -36,6 +50,51 @@ Assert-IsAdmin
 if (-not (Test-CommandExists 'winget')) {
     Write-Log "winget not found. Install 'App Installer' from the Microsoft Store, then re-run."
     exit 1
+}
+
+# Set which shell sshd launches. By default Windows OpenSSH uses cmd.exe; this
+# points it at PowerShell 7 (or Windows PowerShell). DefaultShellCommandOption
+# '-c' makes remote one-liners (ssh host "cmd") work with a PowerShell shell.
+# Read fresh per connection, so no sshd restart is needed. Idempotent.
+function Set-SshDefaultShell {
+    param([ValidateSet('pwsh', 'powershell', 'cmd', 'keep')][string]$Choice)
+
+    $regPath = 'HKLM:\SOFTWARE\OpenSSH'
+    if (-not (Test-Path $regPath)) { New-Item -Path $regPath -Force | Out-Null }
+
+    if ($Choice -eq 'keep') { Write-Log "Leaving the SSH default shell unchanged."; return }
+
+    if ($Choice -eq 'cmd') {
+        Remove-ItemProperty -Path $regPath -Name DefaultShell, DefaultShellCommandOption -ErrorAction SilentlyContinue
+        Write-Log "SSH default shell reset to cmd.exe (registry override removed)."
+        return
+    }
+
+    $shellExe = $null
+    if ($Choice -eq 'pwsh') {
+        $shellExe = (Get-Command pwsh -ErrorAction SilentlyContinue).Source
+        if (-not $shellExe -and (Test-Path 'C:\Program Files\PowerShell\7\pwsh.exe')) {
+            $shellExe = 'C:\Program Files\PowerShell\7\pwsh.exe'
+        }
+        if (-not $shellExe) {
+            Write-Log "PowerShell 7 (pwsh) not installed - leaving the SSH shell as the default (cmd)."
+            Write-Log "Install pwsh (e.g. the git/bitwarden pattern, or winget Microsoft.PowerShell) and re-run, or use -DefaultShell powershell."
+            return
+        }
+    } else {
+        $shellExe = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
+        if (-not (Test-Path $shellExe)) { Write-Log "Windows PowerShell not found; leaving the SSH shell as default."; return }
+    }
+
+    $curShell = (Get-ItemProperty -Path $regPath -Name DefaultShell -ErrorAction SilentlyContinue).DefaultShell
+    $curOpt   = (Get-ItemProperty -Path $regPath -Name DefaultShellCommandOption -ErrorAction SilentlyContinue).DefaultShellCommandOption
+    if ($curShell -eq $shellExe -and $curOpt -eq '-c') {
+        Write-Log "SSH default shell already set to $shellExe."
+    } else {
+        New-ItemProperty -Path $regPath -Name DefaultShell -Value $shellExe -PropertyType String -Force | Out-Null
+        New-ItemProperty -Path $regPath -Name DefaultShellCommandOption -Value '-c' -PropertyType String -Force | Out-Null
+        Write-Log "SSH default shell set to $shellExe (new SSH sessions land here; no sshd restart needed)."
+    }
 }
 
 # Win32-OpenSSH MSI always installs here (64-bit). We look ONLY here on purpose:
@@ -97,6 +156,9 @@ if (-not (Get-NetFirewallRule -Name $ruleName -ErrorAction SilentlyContinue)) {
 } else {
     Write-Log "Firewall rule '$ruleName' already exists"
 }
+
+# --- SSH default shell (cmd.exe otherwise) ---
+Set-SshDefaultShell -Choice $DefaultShell
 
 Write-Log "Done."
 

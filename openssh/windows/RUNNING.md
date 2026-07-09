@@ -14,6 +14,18 @@
 
 Confirm you're actually on PS7: `$PSVersionTable.PSVersion` should show `7.x`.
 
+### SSH default shell
+
+By default Windows OpenSSH gives an incoming SSH session **`cmd.exe`**. The installer sets the default shell to **PowerShell 7** (`-DefaultShell pwsh`, the default) so you land in `pwsh` when you connect — provided PowerShell 7 is installed (otherwise it leaves cmd and says so). Override:
+
+```powershell
+.\install.ps1 -DefaultShell powershell   # Windows PowerShell 5.1
+.\install.ps1 -DefaultShell cmd          # revert to cmd.exe
+.\install.ps1 -DefaultShell keep         # don't touch the current setting
+```
+
+Takes effect on the **next** SSH connection — no `sshd` restart needed.
+
 ## If scripts are blocked
 
 If you see "running scripts is disabled on this system", allow scripts for the **current session only**, then re-run:

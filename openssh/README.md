@@ -26,6 +26,7 @@ Native install via **winget** (`Microsoft.OpenSSH.Preview` — Microsoft's Win32
 - Installs the package with winget.
 - Registers the `sshd` and `ssh-agent` services, sets them to start Automatically, and starts them.
 - Adds an inbound firewall rule for TCP 22 (override with `-Port`).
+- Sets the SSH **default shell to PowerShell 7** so sessions land in `pwsh` instead of `cmd.exe` (override with `-DefaultShell powershell|cmd|keep`; falls back to cmd if pwsh isn't installed).
 
 ```powershell
 git clone <repo-url> C:\ftutil_repos
