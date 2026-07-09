@@ -19,7 +19,9 @@ Full run steps: [`linux/RUNNING.md`](linux/RUNNING.md).
 
 ## Windows (`windows/install.ps1`)
 
-Native install via **winget** (`Microsoft.OpenSSH.Beta` — the Win32-OpenSSH build, which ships both `ssh.exe` client and `sshd.exe` server). No Docker.
+Native install via **winget** (`Microsoft.OpenSSH.Preview` — Microsoft's Win32-OpenSSH MSI, which installs to `C:\Program Files\OpenSSH` and ships both `ssh.exe` client and `sshd.exe` server). No Docker.
+
+> This is a *preview* build — currently the only Microsoft OpenSSH package in winget. The stable Windows OpenSSH ships as an optional feature (`Add-WindowsCapability`) instead; this repo standardises on winget for Windows installs.
 
 - Installs the package with winget.
 - Registers the `sshd` and `ssh-agent` services, sets them to start Automatically, and starts them.

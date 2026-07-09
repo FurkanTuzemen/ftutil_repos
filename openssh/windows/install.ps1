@@ -4,9 +4,15 @@
 .SYNOPSIS
     Bootstrap: OpenSSH server + client (Windows, via winget)
 .DESCRIPTION
-    Installs the Win32-OpenSSH build (client + server) with winget, registers
-    and starts the sshd service, and opens the firewall for inbound SSH.
-    Idempotent: safe to re-run on an already-configured machine.
+    Installs the Win32-OpenSSH build (client + server) with winget, ensures the
+    sshd service is registered/enabled/started, and opens the firewall for
+    inbound SSH. Idempotent: safe to re-run on an already-configured machine.
+
+    Uses the winget package 'Microsoft.OpenSSH.Preview' (Microsoft's Win32-OpenSSH
+    MSI, which installs to C:\Program Files\OpenSSH and ships both ssh.exe and
+    sshd.exe). This is a preview build; the stable OpenSSH on Windows ships as an
+    optional feature (Add-WindowsCapability) instead, but this repo standardises
+    on winget for Windows installs.
 
     Runs on both Windows PowerShell 5.1 and PowerShell 7+ (pwsh). Under PS7 the
     NetSecurity firewall cmdlets load via the Windows compatibility layer, which
@@ -32,36 +38,43 @@ if (-not (Test-CommandExists 'winget')) {
     exit 1
 }
 
+# Win32-OpenSSH MSI always installs here (64-bit). We look ONLY here on purpose:
+# a broad search of Program Files can match unrelated sshd.exe binaries shipped
+# by Git for Windows, WSL, etc.
+$packageId = 'Microsoft.OpenSSH.Preview'
+$sshDir    = Join-Path $env:ProgramFiles 'OpenSSH'
+$sshdExe   = Join-Path $sshDir 'sshd.exe'
+
 # --- Install (client + server ship in the same package) ---
-$packageId = 'Microsoft.OpenSSH.Beta'
-$installed = winget list --id $packageId -e --accept-source-agreements 2>$null | Select-String -SimpleMatch $packageId
+$installed = winget list --id $packageId -e 2>$null | Select-String -SimpleMatch $packageId
 if ($installed) {
     Write-Log "$packageId already installed, skipping winget install"
 } else {
     Write-Log "Installing $packageId via winget"
-    winget install --id $packageId -e --silent `
+    winget install --id $packageId -e --source winget --silent `
         --accept-package-agreements --accept-source-agreements
-    # winget returns non-zero for benign cases (e.g. already up to date); verify by result instead.
+    Write-Log "winget exit code: $LASTEXITCODE"
 }
 
-# --- Locate the OpenSSH install directory ---
-$sshDir = Join-Path $env:ProgramFiles 'OpenSSH'
-if (-not (Test-Path (Join-Path $sshDir 'sshd.exe'))) {
-    $found = Get-ChildItem -Path $env:ProgramFiles -Filter 'sshd.exe' -Recurse -ErrorAction SilentlyContinue |
-        Select-Object -First 1
-    if ($found) {
-        $sshDir = $found.DirectoryName
-    } else {
-        Write-Log "Could not locate sshd.exe after install. Check the winget output above."
-        exit 1
-    }
+# --- Verify the install landed where we expect (this is the real success signal) ---
+if (-not (Test-Path $sshdExe)) {
+    Write-Log "sshd.exe not found at $sshdExe after winget install."
+    Write-Log "The winget install did not complete as expected (see its output above). Aborting."
+    exit 1
 }
 Write-Log "OpenSSH installed at $sshDir"
 
-# --- Register the sshd + ssh-agent services (only if not already present) ---
+# --- Register the sshd service if the MSI didn't already do it ---
 if (-not (Get-Service -Name 'sshd' -ErrorAction SilentlyContinue)) {
-    Write-Log "Registering the sshd service"
-    & (Join-Path $sshDir 'install-sshd.ps1')
+    $installSshd = Join-Path $sshDir 'install-sshd.ps1'
+    if (Test-Path $installSshd) {
+        Write-Log "Registering the sshd service via install-sshd.ps1"
+        & $installSshd
+    } else {
+        Write-Log "sshd service is not registered and $installSshd was not found."
+        Write-Log "The MSI normally registers it; reopen the shell or reboot and re-run. Aborting."
+        exit 1
+    }
 } else {
     Write-Log "sshd service already registered"
 }
