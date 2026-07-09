@@ -55,7 +55,13 @@ ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... you@your-client
 
 Copy that whole line. That's what you take to the server in Step 2.
 
-> Reprint it later without regenerating: `Get-Content $env:USERPROFILE\.ssh\id_ed25519.pub` (Windows) or `cat ~/.ssh/id_ed25519.pub` (Linux).
+They also print **this machine's own `user@address`** for each LAN and Tailscale IP — handy if this machine is *also* something you SSH into.
+
+**Safe to re-run.** The script never clobbers an existing key:
+
+- If a **private key already exists**, it is reused (not regenerated). Use `-Force` / `--force` to deliberately replace it.
+- If the **private key exists but the `.pub` is missing**, the public key is re-derived from the private key and saved — so you always get your public key back.
+- Reprint without any regeneration: `Get-Content $env:USERPROFILE\.ssh\id_ed25519.pub` (Windows) or `cat ~/.ssh/id_ed25519.pub` (Linux).
 
 ---
 
