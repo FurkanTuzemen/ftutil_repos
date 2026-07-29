@@ -85,5 +85,10 @@ Run PowerShell as Administrator. Works on both Windows PowerShell 5.1 and PowerS
 - [x] `docker` — install Docker (Docker Engine host-level on Linux via `get.docker.com`; Docker Desktop on Windows via winget).
 - [x] `git` — install Git (Linux packages; Windows via winget).
 - [x] `bitwarden` — install the Bitwarden client (CLI always; desktop app on graphical systems). Self-hosted Vaultwarden documented under `bitwarden/selfhosted/` but not implemented yet.
+- [x] [`trellis2`](trellis2/README.md) — validated RTX 4090/WSL 2
+  rebuild, permissive renderer/background-removal design, 512³ generation,
+  license compliance, and per-asset provenance playbook. This project is
+  documentation-only until the custom TRELLIS.2 implementation is committed
+  to its own private fork.
 
 More will be added following the same convention above.
