@@ -96,7 +96,8 @@ Run PowerShell as Administrator. Works on both Windows PowerShell 5.1 and PowerS
   to its own private fork.
 - [x] [`net-failover`](net-failover/README.md) — keeps a machine online:
   ethernet first, falling back through a priority-ordered WiFi list when the
-  wire has carrier but no actual internet, and switching back automatically.
-  Ships a hardware-free Docker test suite for the failover logic.
+  wire has carrier but no actual internet, and switching back automatically
+  (NetworkManager daemon on Linux; `netsh`/`Set-NetIPInterface` scheduled task
+  on Windows). Ships a hardware-free Docker test suite for the failover logic.
 
 More will be added following the same convention above.
