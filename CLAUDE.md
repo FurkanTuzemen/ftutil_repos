@@ -40,6 +40,13 @@ Reproducible bootstrap/automation scripts to set up tools (OpenSSH, Docker, Git,
   misspelled SSID can never authenticate against the correct one — the
   plain-text passphrase is required. Symptom in `journalctl -u NetworkManager`:
   `4way_handshake -> disconnected`, then "asking for new key".
+- **An IPv6 default route does not imply an IPv6 address.** If an RA
+  advertises a default route but no global prefix, curl still prefers the
+  AAAA answer and every HTTP probe stalls for the whole `PROBE_TIMEOUT`,
+  so only the ICMP fallback answers and captive-portal detection silently
+  stops working. `probe_iface` pins curl to `-4` unless the interface has
+  a global IPv6 address. The Windows twin is unaffected - it binds probes
+  to the adapter's IPv4 (`curl.exe --interface <ip>`), already v4-only.
 - **Link state is not internet.** Reachability must be probed per interface with
   `SO_BINDTODEVICE` (`curl --interface`, `ping -I`), because carrier + a DHCP
   lease + a default route says nothing about whether the uplink works.

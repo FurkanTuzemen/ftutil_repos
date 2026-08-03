@@ -86,6 +86,7 @@ carrier() {
 }
 
 has_ipv4() { ip -4 -br addr show dev "$1" 2>/dev/null | grep -q '[0-9]\+\.[0-9]\+'; }
+has_global_ipv6() { ip -6 addr show dev "$1" scope global 2>/dev/null | grep -q inet6; }
 
 nm_state() { nmcli -t -f DEVICE,STATE dev status 2>/dev/null | awk -F: -v d="$1" '$1==d{print $2}'; }
 
@@ -117,9 +118,19 @@ eth_profile_any() {
 # reachable at all.
 probe_iface() {
     local dev=$1 url code portal=0 t
+    local -a ipopt=()
+
+    # curl prefers the AAAA answer when a name resolves to both families.
+    # An RA can advertise an IPv6 default route without granting a global
+    # address (common on ISP CPE), and every probe then stalls for the full
+    # PROBE_TIMEOUT instead of falling back to IPv4 - which silently kills
+    # captive-portal detection, because only the ICMP fallback ever answers.
+    # Pin to IPv4 unless this interface has a usable IPv6 source address.
+    has_global_ipv6 "$dev" || ipopt=(-4)
 
     for url in $PROBE_URLS; do
         code=$(curl -s -o /dev/null -w '%{http_code}' \
+                    "${ipopt[@]}" \
                     --interface "$dev" --max-time "$PROBE_TIMEOUT" \
                     -H 'Cache-Control: no-cache' "$url" 2>/dev/null)
         case "$code" in
