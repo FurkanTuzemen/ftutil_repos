@@ -2,3 +2,7 @@
 Thumbs.db
 *.log
 .vscode/
+
+# net-failover: the live WiFi list holds plain-text WPA passphrases.
+# Only networks.conf.example is ever committed.
+net-failover/**/networks.conf

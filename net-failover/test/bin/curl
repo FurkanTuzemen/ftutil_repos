@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Mock curl for the net-failover test harness.
+# Prints the HTTP status the scenario assigned to the bound interface, which is
+# what the daemon's -w '%{http_code}' probe reads.
+set -u
+M="${MOCK_DIR:?MOCK_DIR not set}"
+
+iface=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --interface) iface="$2"; shift 2 ;;
+        *) shift ;;
+    esac
+done
+
+echo "curl iface=$iface" >>"$M/curl.log"
+
+code=$(cat "$M/probe_$iface" 2>/dev/null || echo 000)
+printf '%s' "$code"
+
+# curl exits non-zero when it never got a response at all.
+[ "$code" = "000" ] && exit 7
+exit 0

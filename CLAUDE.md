@@ -27,6 +27,29 @@ Reproducible bootstrap/automation scripts to set up tools (OpenSSH, Docker, Git,
 - **No secrets** committed; scripts must be safe to run unattended.
 - `.gitattributes` forces **LF** on `*.sh` and **CRLF** on `*.ps1`.
 
+## net-failover notes (non-obvious details)
+
+- **Not containerized, by design.** It drives the host's NetworkManager and real
+  radios, so it is a host-level `bootstrap.sh`. Docker is used only to pin a
+  reproducible environment for its **test suite** (`net-failover/test/`), which
+  runs the real daemon against mock `nmcli`/`curl`/`ping`/`ip` on `PATH`.
+- **`nmcli con modify` silently rejects `key-mgmt` and `psk` passed in a single
+  call**, leaving a profile that looks correct but has no stored secret and
+  fails at the 4-way handshake. Set each property in its own invocation.
+- **A stored WPA key is hashed together with the SSID**, so a key saved under a
+  misspelled SSID can never authenticate against the correct one — the
+  plain-text passphrase is required. Symptom in `journalctl -u NetworkManager`:
+  `4way_handshake -> disconnected`, then "asking for new key".
+- **Link state is not internet.** Reachability must be probed per interface with
+  `SO_BINDTODEVICE` (`curl --interface`, `ping -I`), because carrier + a DHCP
+  lease + a default route says nothing about whether the uplink works.
+- **Demote, don't down.** A dead ethernet link keeps its IP (so LAN/SSH stays
+  reachable) and only loses the default route, via `nmcli device modify` — a
+  runtime-only change that does not rewrite the saved profile.
+- **Secrets:** `/etc/net-failover/networks.conf` holds plain-text passphrases,
+  is mode `0600`, is `.gitignore`d, and `bootstrap.sh` never overwrites it. Only
+  `networks.conf.example` is committed.
+
 ## Verifying changes
 
 - Bash syntax: `bash -n <script>.sh`.

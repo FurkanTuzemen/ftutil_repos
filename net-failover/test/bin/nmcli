@@ -1,0 +1,143 @@
+#!/usr/bin/env bash
+# Mock nmcli for the net-failover test harness.
+# Reads/writes scenario state under $MOCK_DIR and logs every invocation so
+# tests can assert on what the daemon actually tried to do.
+set -u
+M="${MOCK_DIR:?MOCK_DIR not set}"
+echo "nmcli $*" >>"$M/nmcli.log"
+
+fields=""
+getval=""
+argv=()
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -t|--terse|-s|--show-secrets) shift ;;
+        -f|--fields)     fields="$2"; shift 2 ;;
+        -g|--get-values) getval="$2"; shift 2 ;;
+        *) argv+=("$1"); shift ;;
+    esac
+done
+set -- ${argv[@]+"${argv[@]}"}
+
+# devices file:     name:type:state
+# connections file: name:type:device:ssid
+DEV="$M/devices"
+CON="$M/connections"
+
+# Project a colon-record onto a requested field list.
+project() {
+    local spec=$1 record=$2 out="" f
+    IFS=':' read -r c1 c2 c3 _ <<<"$record"
+    IFS=',' read -ra want <<<"$spec"
+    for f in "${want[@]}"; do
+        case "$f" in
+            DEVICE|NAME) out="$out:$c1" ;;
+            TYPE)        out="$out:$c2" ;;
+            STATE)       out="$out:$c3" ;;
+            *)           out="$out:" ;;
+        esac
+    done
+    echo "${out#:}"
+}
+
+cmd="${1:-}"; sub="${2:-}"
+
+case "$cmd" in
+radio) exit 0 ;;
+
+dev|device)
+    case "$sub" in
+    status)
+        [ -z "$fields" ] && fields="DEVICE,TYPE,STATE"
+        while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            project "$fields" "$line"
+        done <"$DEV"
+        ;;
+    wifi)
+        # 'dev wifi list ifname X [--rescan yes|no]'
+        active=$(cat "$M/active_ssid" 2>/dev/null || true)
+        while IFS= read -r ssid; do
+            [ -z "$ssid" ] && continue
+            case "$fields" in
+                *ACTIVE*) if [ "$ssid" = "$active" ]; then echo "yes:$ssid"; else echo "no:$ssid"; fi ;;
+                *)        echo "$ssid" ;;
+            esac
+        done <"$M/scan"
+        ;;
+    disconnect)
+        d="${3:-}"
+        sed -i "s/^$d:\([^:]*\):.*/$d:\1:disconnected/" "$DEV"
+        : >"$M/active_ssid"
+        ;;
+    modify)
+        # 'device modify <dev> ipv4.route-metric <n>'
+        d="${3:-}"
+        [ "${4:-}" = "ipv4.route-metric" ] && echo "${5:-}" >"$M/metric_$d"
+        ;;
+    esac
+    ;;
+
+con|connection)
+    case "$sub" in
+    show)
+        name="${3:-}"
+        if [ -n "$getval" ]; then
+            # -g 802-11-wireless.ssid con show <name>
+            awk -F: -v n="$name" '$1==n{print $4}' "$CON"
+            exit 0
+        fi
+        [ -z "$fields" ] && fields="NAME,TYPE,DEVICE"
+        while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            IFS=':' read -r c1 c2 c3 _ <<<"$line"
+            out=""
+            IFS=',' read -ra want <<<"$fields"
+            for f in "${want[@]}"; do
+                case "$f" in
+                    NAME)   out="$out:$c1" ;;
+                    TYPE)   out="$out:$c2" ;;
+                    DEVICE) out="$out:$c3" ;;
+                    *)      out="$out:" ;;
+                esac
+            done
+            echo "${out#:}"
+        done <"$CON"
+        ;;
+    add)
+        # con add type wifi con-name N ifname I ssid S ...
+        n=""; s=""
+        while [ $# -gt 0 ]; do
+            case "$1" in
+                con-name) n="$2"; shift 2 ;;
+                ssid)     s="$2"; shift 2 ;;
+                *) shift ;;
+            esac
+        done
+        echo "$n:802-11-wireless::$s" >>"$CON"
+        ;;
+    modify)
+        n="${3:-}"; prop="${4:-}"; val="${5:-}"
+        echo "$n|$prop|$val" >>"$M/modify.log"
+        # A profile whose stored passphrase is wrong stays wrong until the
+        # scenario says otherwise; tests drive that via connect_<ssid>.
+        ;;
+    up)
+        n="${3:-}"
+        s=$(awk -F: -v x="$n" '$1==x{print $4}' "$CON")
+        d="${5:-wlan0}"
+        if [ "$(cat "$M/connect_$s" 2>/dev/null || echo ok)" = "fail" ]; then
+            echo "Error: Connection activation failed." >&2
+            exit 4
+        fi
+        sed -i "s/^$d:\([^:]*\):.*/$d:\1:connected/" "$DEV"
+        echo "$s" >"$M/active_ssid"
+        ;;
+    delete)
+        n="${3:-}"
+        sed -i "/^$n:/d" "$CON"
+        ;;
+    esac
+    ;;
+esac
+exit 0

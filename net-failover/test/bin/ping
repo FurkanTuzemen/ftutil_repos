@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Mock ping for the net-failover test harness (ICMP fallback probe).
+set -u
+M="${MOCK_DIR:?MOCK_DIR not set}"
+
+iface=""
+prev=""
+for a in "$@"; do
+    [ "$prev" = "-I" ] && iface="$a"
+    prev="$a"
+done
+
+echo "ping iface=$iface" >>"$M/ping.log"
+
+[ "$(cat "$M/ping_$iface" 2>/dev/null || echo fail)" = "ok" ]

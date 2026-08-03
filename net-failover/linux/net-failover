@@ -1,0 +1,416 @@
+#!/usr/bin/env bash
+# net-failover — keep this host on the internet.
+#
+# Policy:
+#   1. Ethernet is always preferred, as long as it actually reaches the internet.
+#   2. If it does not, walk a priority-ordered list of WiFi networks and settle
+#      on the first one that does.
+#   3. As soon as ethernet recovers, go back to it and park the WiFi radio.
+#
+# Reachability is verified per-interface (SO_BINDTODEVICE), so a link that has
+# carrier and a DHCP lease but a dead uplink is correctly treated as offline.
+
+set -uo pipefail
+
+# Paths are overridable purely so the test harness can redirect them; in normal
+# operation the defaults are what systemd runs with.
+CONFIG=${NET_FAILOVER_CONFIG:-/etc/net-failover/config}
+NETWORKS=${NET_FAILOVER_NETWORKS:-/etc/net-failover/networks.conf}
+STATE_DIR=${NET_FAILOVER_STATE_DIR:-/run/net-failover}
+SYSFS_NET=${NET_FAILOVER_SYSFS_NET:-/sys/class/net}
+
+# ---------------------------------------------------------------- defaults ---
+# Every value here can be overridden in $CONFIG.
+ETH_IFACE=eth0
+WIFI_IFACE=wlan0
+ETH_CON=""                      # empty = auto-detect the ethernet profile
+CHECK_INTERVAL_HEALTHY=60       # seconds between checks while online
+CHECK_INTERVAL_DEGRADED=10      # seconds between checks while hunting for a link
+FAIL_THRESHOLD=2                # consecutive failures before acting (rides out blips)
+PROBE_TIMEOUT=5
+PROBE_URLS="http://connectivitycheck.gstatic.com/generate_204 http://cp.cloudflare.com/generate_204 http://www.gstatic.com/generate_204"
+PING_TARGETS="1.1.1.1 8.8.8.8"
+DISCONNECT_WIFI_ON_ETH=yes
+ETH_METRIC_GOOD=100             # ethernet wins the default route
+ETH_METRIC_DEAD=1000            # ...unless it is dead, then WiFi (600) wins
+WIFI_METRIC=600
+WIFI_CONNECT_TIMEOUT=30
+WIFI_SCAN_STALE=25              # force a rescan if the last one is older than this
+SSID_COOLDOWN=300               # seconds to skip an SSID after it fails to deliver
+WIFI_PROFILE_PREFIX="nf-"       # prefix for profiles this daemon creates
+
+[ -r "$CONFIG" ] && . "$CONFIG"
+
+STATE="init"
+NEXT_INTERVAL=$CHECK_INTERVAL_DEGRADED
+eth_fails=0
+wifi_fails=0
+
+# ----------------------------------------------------------------- logging ---
+# Always to stderr: stdout is used for command-substitution return values, and
+# systemd journals both streams. The <N> prefixes map to journal priorities.
+log()  { printf '<6>%s\n' "$*" >&2; }
+warn() { printf '<4>%s\n' "$*" >&2; }
+err()  { printf '<3>%s\n' "$*" >&2; }
+dbg()  { [ "${VERBOSE:-0}" = 1 ] && printf '<7>%s\n' "$*" >&2; return 0; }
+
+# ------------------------------------------------------------------- state ---
+set_state() {
+    [ "$1" = "$STATE" ] && return 0
+    STATE="$1"
+    printf '%s\n' "$STATE" >"$STATE_DIR/state" 2>/dev/null
+    log "state -> $STATE"
+}
+
+ssid_key() { printf '%s' "$1" | md5sum | cut -d' ' -f1; }
+
+cooldown_active() {
+    local f until
+    f="$STATE_DIR/cooldown/$(ssid_key "$1")"
+    [ -r "$f" ] || return 1
+    until=$(cat "$f" 2>/dev/null) || return 1
+    [ "$(date +%s)" -lt "${until:-0}" ]
+}
+
+cooldown_set() {
+    mkdir -p "$STATE_DIR/cooldown"
+    printf '%s\n' "$(( $(date +%s) + SSID_COOLDOWN ))" \
+        >"$STATE_DIR/cooldown/$(ssid_key "$1")"
+}
+
+# -------------------------------------------------------------- interfaces ---
+carrier() {
+    local c
+    c=$(cat "$SYSFS_NET/$1/carrier" 2>/dev/null) || return 1
+    [ "$c" = 1 ]
+}
+
+has_ipv4() { ip -4 -br addr show dev "$1" 2>/dev/null | grep -q '[0-9]\+\.[0-9]\+'; }
+
+nm_state() { nmcli -t -f DEVICE,STATE dev status 2>/dev/null | awk -F: -v d="$1" '$1==d{print $2}'; }
+
+wifi_is_connected() { [ "$(nm_state "$WIFI_IFACE")" = "connected" ]; }
+
+current_ssid() {
+    nmcli -t -f ACTIVE,SSID dev wifi list ifname "$WIFI_IFACE" 2>/dev/null \
+        | awk -F: '$1=="yes"{sub(/^yes:/,""); print; exit}'
+}
+
+eth_profile() {
+    [ -n "$ETH_CON" ] && { printf '%s' "$ETH_CON"; return; }
+    nmcli -t -f NAME,TYPE,DEVICE con show 2>/dev/null \
+        | awk -F: -v d="$ETH_IFACE" '$2=="802-3-ethernet" && $3==d {print $1; exit}'
+    # fall back to any ethernet profile if none is currently bound to the device
+}
+
+eth_profile_any() {
+    local p
+    p=$(eth_profile)
+    [ -n "$p" ] && { printf '%s' "$p"; return; }
+    nmcli -t -f NAME,TYPE con show 2>/dev/null \
+        | awk -F: '$2=="802-3-ethernet"{print $1; exit}'
+}
+
+# ------------------------------------------------------------------ probes ---
+# Returns 0 if $1 has genuine internet access. HTTP 204 is authoritative (it
+# also unmasks captive portals); ICMP is only consulted when no probe URL was
+# reachable at all.
+probe_iface() {
+    local dev=$1 url code portal=0 t
+
+    for url in $PROBE_URLS; do
+        code=$(curl -s -o /dev/null -w '%{http_code}' \
+                    --interface "$dev" --max-time "$PROBE_TIMEOUT" \
+                    -H 'Cache-Control: no-cache' "$url" 2>/dev/null)
+        case "$code" in
+            204)      dbg "probe $dev: 204 from $url"; return 0 ;;
+            000|"")   dbg "probe $dev: no response from $url" ;;
+            *)        dbg "probe $dev: HTTP $code from $url (captive portal?)"; portal=1 ;;
+        esac
+    done
+
+    if [ "$portal" = 1 ]; then
+        warn "$dev: probes intercepted (captive portal / walled garden)"
+        return 1
+    fi
+
+    # No HTTP probe got a response — the uplink may just be filtering port 80.
+    for t in $PING_TARGETS; do
+        if ping -n -q -c 1 -W "$PROBE_TIMEOUT" -I "$dev" "$t" >/dev/null 2>&1; then
+            dbg "probe $dev: ICMP fallback reached $t"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# ------------------------------------------------------------ route metric ---
+# Ethernet keeps its IP (so LAN/SSH stays reachable) but loses the default
+# route when it can't reach the internet.
+set_eth_metric() {
+    local m=$1 cur
+    cur=$(cat "$STATE_DIR/eth_metric" 2>/dev/null)
+    [ "$cur" = "$m" ] && return 0
+    if nmcli device modify "$ETH_IFACE" ipv4.route-metric "$m" >/dev/null 2>&1; then
+        printf '%s\n' "$m" >"$STATE_DIR/eth_metric"
+        log "$ETH_IFACE: default-route metric -> $m"
+    else
+        warn "$ETH_IFACE: could not set route metric to $m"
+    fi
+}
+
+ensure_eth_connected() {
+    local st p
+    st=$(nm_state "$ETH_IFACE")
+    [ "$st" = "connected" ] && return 0
+    [ "$st" = "connecting" ] && return 0
+    p=$(eth_profile_any)
+    [ -z "$p" ] && return 1
+    log "$ETH_IFACE: carrier present but $st — activating '$p'"
+    nmcli con up "$p" ifname "$ETH_IFACE" >/dev/null 2>&1
+}
+
+# -------------------------------------------------------------------- wifi ---
+# Visible SSIDs, one per line. nmcli -t escapes ':' inside fields.
+wifi_scan() {
+    local rescan=no age now last
+    now=$(date +%s)
+    last=$(cat "$STATE_DIR/last_scan" 2>/dev/null || echo 0)
+    age=$(( now - last ))
+    if [ "$age" -ge "$WIFI_SCAN_STALE" ]; then
+        rescan=yes
+        printf '%s\n' "$now" >"$STATE_DIR/last_scan"
+    fi
+    nmcli -t -f SSID dev wifi list ifname "$WIFI_IFACE" --rescan "$rescan" 2>/dev/null \
+        | sed 's/\\:/:/g' | sed '/^$/d' | sort -u
+}
+
+# Existing NM profile for an SSID, if any (so saved passwords keep working).
+profile_for_ssid() {
+    local want=$1 name s
+    while IFS= read -r name; do
+        [ -z "$name" ] && continue
+        s=$(nmcli -g 802-11-wireless.ssid con show "$name" 2>/dev/null)
+        if [ "$s" = "$want" ]; then printf '%s' "$name"; return 0; fi
+    done < <(nmcli -t -f NAME,TYPE con show 2>/dev/null \
+                | awk -F: '$2=="802-11-wireless"{sub(/:802-11-wireless$/,""); print}')
+    return 1
+}
+
+# NM silently rejects key-mgmt and psk when they are passed in a single
+# 'con modify' call, leaving a profile that looks fine but has no secret and
+# fails at the 4-way handshake. Each property must be set on its own.
+set_psk() {
+    local name=$1 psk=$2
+    nmcli con modify "$name" 802-11-wireless-security.key-mgmt wpa-psk >/dev/null 2>&1 || return 1
+    nmcli con modify "$name" 802-11-wireless-security.psk "$psk"       >/dev/null 2>&1 || return 1
+    nmcli con modify "$name" 802-11-wireless-security.psk-flags 0      >/dev/null 2>&1
+    return 0
+}
+
+create_profile() {
+    local ssid=$1 psk=$2 hidden=$3 name="${WIFI_PROFILE_PREFIX}${1}"
+    log "creating NetworkManager profile '$name' for SSID '$ssid'"
+    nmcli con add type wifi con-name "$name" ifname "$WIFI_IFACE" ssid "$ssid" \
+        connection.autoconnect no >/dev/null 2>&1 || return 1
+    nmcli con modify "$name" ipv4.route-metric "$WIFI_METRIC" >/dev/null 2>&1
+    nmcli con modify "$name" ipv6.route-metric "$WIFI_METRIC" >/dev/null 2>&1
+    if [ -n "$psk" ] && ! set_psk "$name" "$psk"; then
+        err "could not store the passphrase for '$ssid'"
+        nmcli con delete "$name" >/dev/null 2>&1
+        return 1
+    fi
+    [ "$hidden" = 1 ] && nmcli con modify "$name" wifi.hidden yes >/dev/null 2>&1
+    printf '%s' "$name"
+}
+
+# Try to bring up one SSID and verify it actually reaches the internet.
+wifi_try() {
+    local ssid=$1 psk=$2 hidden=$3 prof
+
+    if prof=$(profile_for_ssid "$ssid"); then
+        # An explicit password in networks.conf is authoritative: sync it so
+        # that correcting a wrong passphrase there actually takes effect.
+        [ -n "$psk" ] && set_psk "$prof" "$psk"
+    else
+        prof=$(create_profile "$ssid" "$psk" "$hidden") || {
+            err "failed to create profile for '$ssid'"; return 1; }
+    fi
+
+    # Keep the metric sane even on profiles we did not create (e.g. netplan's).
+    nmcli con modify "$prof" ipv4.route-metric "$WIFI_METRIC" >/dev/null 2>&1
+
+    log "trying WiFi '$ssid' (profile '$prof')"
+    if ! timeout "$WIFI_CONNECT_TIMEOUT" \
+            nmcli con up "$prof" ifname "$WIFI_IFACE" >/dev/null 2>&1; then
+        warn "'$ssid': association/DHCP failed"
+        cooldown_set "$ssid"
+        return 1
+    fi
+
+    if probe_iface "$WIFI_IFACE"; then
+        log "'$ssid': online"
+        return 0
+    fi
+
+    warn "'$ssid': associated but no internet"
+    cooldown_set "$ssid"
+    nmcli dev disconnect "$WIFI_IFACE" >/dev/null 2>&1
+    return 1
+}
+
+# Walk networks.conf top to bottom; first working network wins.
+try_wifi_list() {
+    local visible ssid psk hidden flags rest line found=0
+
+    if [ ! -r "$NETWORKS" ]; then
+        err "$NETWORKS is missing — no WiFi networks configured"
+        return 1
+    fi
+    if [ -z "$(nm_state "$WIFI_IFACE")" ]; then
+        err "$WIFI_IFACE not managed by NetworkManager"
+        return 1
+    fi
+
+    nmcli radio wifi on >/dev/null 2>&1
+    visible=$(wifi_scan)
+
+    while IFS= read -r line || [ -n "$line" ]; do
+        line="${line%$'\r'}"
+        case "$line" in ''|'#'*) continue ;; esac
+
+        ssid="${line%%|*}"
+        rest="${line#*|}"
+        [ "$rest" = "$line" ] && rest=""
+        psk="${rest%%|*}"
+        flags="${rest#*|}"
+        [ "$flags" = "$rest" ] && flags=""
+        [ "$psk" = "@saved" ] && psk=""
+
+        hidden=0
+        case "$flags" in *hidden*) hidden=1 ;; esac
+
+        [ -z "$ssid" ] && continue
+
+        if cooldown_active "$ssid"; then
+            dbg "skipping '$ssid' (cooling down after a recent failure)"
+            continue
+        fi
+        if [ "$hidden" != 1 ] && ! printf '%s\n' "$visible" | grep -Fxq "$ssid"; then
+            dbg "skipping '$ssid' (not in range)"
+            continue
+        fi
+
+        if wifi_try "$ssid" "$psk" "$hidden"; then
+            set_state "wifi:$ssid"
+            NEXT_INTERVAL=$CHECK_INTERVAL_HEALTHY
+            found=1
+            break
+        fi
+    done <"$NETWORKS"
+
+    if [ "$found" = 0 ]; then
+        # Only spell out the details on the transition, not every 10s.
+        if [ "$STATE" != "offline" ]; then
+            warn "no configured WiFi network could get online"
+            warn "  configured: $(grep -vE '^\s*(#|$)' "$NETWORKS" | cut -d'|' -f1 | tr '\n' ' ')"
+            warn "  in range:   $(printf '%s' "$visible" | tr '\n' ' ')"
+        fi
+        set_state "offline"
+        return 1
+    fi
+    return 0
+}
+
+# --------------------------------------------------------------------- tick ---
+tick() {
+    NEXT_INTERVAL=$CHECK_INTERVAL_DEGRADED
+
+    # ---- 1. Ethernet, always preferred ----
+    if carrier "$ETH_IFACE"; then
+        ensure_eth_connected
+        if has_ipv4 "$ETH_IFACE" && probe_iface "$ETH_IFACE"; then
+            eth_fails=0
+            set_eth_metric "$ETH_METRIC_GOOD"
+            if [ "$DISCONNECT_WIFI_ON_ETH" = yes ] && wifi_is_connected; then
+                log "ethernet is healthy — parking WiFi"
+                nmcli dev disconnect "$WIFI_IFACE" >/dev/null 2>&1
+            fi
+            set_state "ethernet"
+            NEXT_INTERVAL=$CHECK_INTERVAL_HEALTHY
+            return 0
+        fi
+        eth_fails=$(( eth_fails + 1 ))
+        warn "$ETH_IFACE: no internet ($eth_fails/$FAIL_THRESHOLD)"
+        [ "$eth_fails" -lt "$FAIL_THRESHOLD" ] && return 0
+    else
+        [ "$eth_fails" -lt "$FAIL_THRESHOLD" ] && warn "$ETH_IFACE: no carrier"
+        eth_fails=$FAIL_THRESHOLD
+    fi
+
+    # ---- 2. Ethernet is out: let WiFi own the default route ----
+    set_eth_metric "$ETH_METRIC_DEAD"
+
+    # ---- 3. Is the WiFi we are already on still good? ----
+    if wifi_is_connected; then
+        if probe_iface "$WIFI_IFACE"; then
+            wifi_fails=0
+            set_state "wifi:$(current_ssid)"
+            NEXT_INTERVAL=$CHECK_INTERVAL_HEALTHY
+            return 0
+        fi
+        wifi_fails=$(( wifi_fails + 1 ))
+        warn "$WIFI_IFACE: no internet ($wifi_fails/$FAIL_THRESHOLD)"
+        [ "$wifi_fails" -lt "$FAIL_THRESHOLD" ] && return 0
+        local s; s=$(current_ssid)
+        [ -n "$s" ] && cooldown_set "$s"
+        log "dropping WiFi '$s' and re-scanning"
+        nmcli dev disconnect "$WIFI_IFACE" >/dev/null 2>&1
+    fi
+    wifi_fails=0
+
+    # ---- 4. Walk the priority list ----
+    try_wifi_list
+    return 0
+}
+
+# ------------------------------------------------------------------- status ---
+show_status() {
+    echo "state:      $(cat "$STATE_DIR/state" 2>/dev/null || echo 'not running')"
+    echo "eth metric: $(cat "$STATE_DIR/eth_metric" 2>/dev/null || echo '-')"
+    echo
+    echo "--- devices ---"
+    nmcli -f DEVICE,TYPE,STATE,CONNECTION dev status
+    echo
+    echo "--- default routes ---"
+    ip route show default
+    echo
+    echo "--- configured networks (priority order) ---"
+    grep -vE '^\s*(#|$)' "$NETWORKS" 2>/dev/null | cut -d'|' -f1 | nl -ba
+}
+
+# --------------------------------------------------------------------- main ---
+mkdir -p "$STATE_DIR/cooldown"
+
+case "${1:-}" in
+    --status)  show_status; exit 0 ;;
+    --scan)    nmcli radio wifi on >/dev/null 2>&1
+               nmcli -f SSID,SIGNAL,SECURITY dev wifi list ifname "$WIFI_IFACE" --rescan yes
+               exit 0 ;;
+    --once)    VERBOSE=1; tick; echo "state: $STATE"; exit 0 ;;
+    --check)   VERBOSE=1
+               for d in "$ETH_IFACE" "$WIFI_IFACE"; do
+                   if probe_iface "$d"; then echo "$d: ONLINE"; else echo "$d: offline"; fi
+               done
+               exit 0 ;;
+    ""|--daemon) ;;
+    *) echo "usage: net-failover [--daemon|--once|--check|--scan|--status]" >&2; exit 2 ;;
+esac
+
+trap 'log "shutting down"; exit 0' TERM INT
+
+log "net-failover started (eth=$ETH_IFACE wifi=$WIFI_IFACE interval=${CHECK_INTERVAL_HEALTHY}s/${CHECK_INTERVAL_DEGRADED}s)"
+while :; do
+    tick
+    sleep "$NEXT_INTERVAL"
+done

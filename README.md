@@ -91,4 +91,9 @@ Run PowerShell as Administrator. Works on both Windows PowerShell 5.1 and PowerS
   documentation-only until the custom TRELLIS.2 implementation is committed
   to its own private fork.
 
+- [x] [`net-failover`](net-failover/README.md) — keeps a machine online:
+  ethernet first, falling back through a priority-ordered WiFi list when the
+  wire has carrier but no actual internet, and switching back automatically.
+  Ships a hardware-free Docker test suite for the failover logic.
+
 More will be added following the same convention above.
