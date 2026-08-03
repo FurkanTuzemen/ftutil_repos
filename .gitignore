@@ -2,3 +2,4 @@
 Thumbs.db
 *.log
 .vscode/
+conan-server/linux/.env

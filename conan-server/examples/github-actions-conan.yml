@@ -1,0 +1,52 @@
+# Example GitHub Actions job that uses the self-hosted Conan remote on the Pi
+# as a binary cache: prebuilt dependencies are downloaded instead of rebuilt,
+# and anything that DID get built from source is uploaded back so the next
+# run hits the cache.
+#
+# One-time setup in the GitHub repo (Settings -> Secrets and variables -> Actions):
+#   variable CONAN_REMOTE_URL       e.g. http://<pi-tailscale-name>:9300
+#   variable CONAN_REMOTE_USER      e.g. ci
+#   secret   CONAN_REMOTE_PASSWORD  from conan-server/linux/.env on the Pi
+#   secret   TS_OAUTH_CLIENT_ID     Tailscale OAuth client (with a "tag:ci"
+#   secret   TS_OAUTH_SECRET        tag) - https://github.com/tailscale/github-action
+#
+# Tailscale lets the cloud runner reach the Pi without exposing the server
+# (plain HTTP) to the public internet. Remember to set CONAN_PUBLIC_HOSTNAME
+# in the Pi's .env to the tailnet name/IP so file-transfer URLs resolve.
+
+name: build
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Join the runner to the tailnet for the duration of the job.
+      # Drop this step if the runner is self-hosted on the same LAN as the Pi.
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@v3
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+
+      - name: Install Conan
+        run: pipx install conan
+
+      - name: Register the self-hosted remote
+        run: |
+          conan profile detect --force
+          conan remote add ftpi "${{ vars.CONAN_REMOTE_URL }}"
+          conan remote login ftpi "${{ vars.CONAN_REMOTE_USER }}" -p "${{ secrets.CONAN_REMOTE_PASSWORD }}"
+
+      - name: Install dependencies (cache hit = download, miss = build)
+        run: conan install . --build=missing
+
+      # Push anything that was built from source back to the Pi so the next
+      # run downloads it instead. Uploads are skipped for packages already on
+      # the server.
+      - name: Upload new binaries to the cache
+        run: conan upload "*" -r ftpi --confirm

@@ -1,0 +1,32 @@
+services:
+  conan-server:
+    build: ./server
+    image: ftutil/conan-server:2.31.1
+    container_name: conan-server
+    restart: unless-stopped
+    init: true
+    ports:
+      - "${CONAN_PUBLIC_PORT:-9300}:9300"
+    environment:
+      CONAN_SERVER_USERS: ${CONAN_SERVER_USERS:?set it in .env}
+      CONAN_WRITE_USERS: ${CONAN_WRITE_USERS:-}
+      CONAN_READ_USERS: ${CONAN_READ_USERS:-}
+      CONAN_JWT_SECRET: ${CONAN_JWT_SECRET:?set it in .env}
+      CONAN_UPDOWN_SECRET: ${CONAN_UPDOWN_SECRET:?set it in .env}
+      CONAN_PUBLIC_HOSTNAME: ${CONAN_PUBLIC_HOSTNAME:?set it in .env}
+      CONAN_PUBLIC_PORT: ${CONAN_PUBLIC_PORT:-9300}
+    volumes:
+      # Package storage on the external disk. create_host_path is off so a
+      # missing disk mount fails loudly instead of silently writing to the
+      # SD card.
+      - type: bind
+        source: ${CONAN_DATA_DIR:-/mnt/expansion/conan-server-data}
+        target: /data
+        bind:
+          create_host_path: false
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9300/v1/ping', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s

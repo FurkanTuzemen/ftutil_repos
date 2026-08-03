@@ -85,6 +85,10 @@ Run PowerShell as Administrator. Works on both Windows PowerShell 5.1 and PowerS
 - [x] `docker` — install Docker (Docker Engine host-level on Linux via `get.docker.com`; Docker Desktop on Windows via winget).
 - [x] `git` — install Git (Linux packages; Windows via winget).
 - [x] `bitwarden` — install the Bitwarden client (CLI always; desktop app on graphical systems). Self-hosted Vaultwarden documented under `bitwarden/selfhosted/` but not implemented yet.
+- [x] [`conan-server`](conan-server/README.md) — self-hosted Conan 2 remote
+  (Dockerized official `conan-server`) used as a C/C++ binary cache for GitHub
+  Actions and dev machines; package storage on an external USB disk. The
+  Windows script installs the Conan client and registers the remote.
 - [x] [`trellis2`](trellis2/README.md) — validated RTX 4090/WSL 2
   rebuild, permissive renderer/background-removal design, 512³ generation,
   license compliance, and per-asset provenance playbook. This project is

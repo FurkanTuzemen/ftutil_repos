@@ -1,0 +1,29 @@
+[server]
+jwt_secret: {jwt_secret}
+jwt_expire_minutes: 120
+
+ssl_enabled: False
+port: 9300
+# Public host/port get baked into the upload/download URLs handed to clients,
+# so they must be reachable from wherever the clients (CI runners, dev
+# machines) actually run.
+public_port: {public_port}
+host_name: {host_name}
+
+authorize_timeout: 1800
+
+disk_storage_path: /data
+disk_authorize_timeout: 1800
+updown_secret: {updown_secret}
+
+# Value is a comma-separated user list; "?" = any authenticated user,
+# "*" = anyone including anonymous. Rules are applied in order, first match
+# wins.
+[write_permissions]
+*/*@*/*: {write_users}
+
+[read_permissions]
+*/*@*/*: {read_users}
+
+[users]
+{users_block}
