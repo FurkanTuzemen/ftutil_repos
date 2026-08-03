@@ -1,0 +1,52 @@
+# net-failover -- WiFi networks to fall back to, in PRIORITY ORDER.
+# The first entry that is in range AND actually reaches the internet wins.
+#
+# Copy to C:\ProgramData\net-failover\networks.conf (install.ps1 does this for
+# you on a first install) and fill in your own networks. This file contains NO
+# real credentials and the live copy is never committed -- it is readable by
+# Administrators and SYSTEM only.
+#
+# Save the live copy as UTF-8 (Notepad's default) if any SSID has non-ASCII
+# characters -- the daemon reads it as UTF-8.
+#
+# Format:   SSID|PASSWORD|FLAGS
+#
+#   SSID       the network name, exactly as broadcast (case sensitive)
+#   PASSWORD   WPA/WPA2 passphrase, plain text.
+#              Use @saved to reuse a profile already stored in Windows.
+#              Leave empty for an open network.
+#   FLAGS      optional, comma separated. Currently supported: hidden
+#
+# See what is in range (elevated):   net-failover -Scan
+# Apply changes (elevated):
+#   Stop-ScheduledTask -TaskName net-failover; Start-ScheduledTask -TaskName net-failover
+
+# --- examples, replace with your own -----------------------------------------
+
+# HomeRouter|correct-horse-battery-staple
+# Office-5G|another-passphrase
+# BackupAP|third-passphrase|hidden
+# OpenCafeWiFi|
+
+# -----------------------------------------------------------------------------
+# Ordering advice
+#
+# WiFi served by the SAME router that feeds your ethernet port is a good
+# fallback for a dead cable, switch or NIC -- but not for an ISP outage, since
+# that router's WiFi is equally offline in that case.
+#
+# A phone / 4G hotspot is the only entry that survives an ISP outage, so it is
+# worth listing as a last resort. To confirm an uplink really is independent,
+# compare public IPs (get each adapter's IPv4 from ipconfig or net-failover
+# -Status, then bind a probe to it):
+#
+#   curl.exe --interface <ethernet-ip> https://api.ipify.org
+#   curl.exe --interface <wifi-ip>     https://api.ipify.org
+#
+# Different answers mean genuinely separate uplinks -- even if both hand out
+# addresses on the same private subnet.
+#
+# A stored WPA key is hashed together with the SSID, so a key saved under a
+# misspelled SSID can never authenticate against the correct one. If a network
+# refuses to associate, re-enter the plain-text passphrase here rather than
+# relying on @saved.

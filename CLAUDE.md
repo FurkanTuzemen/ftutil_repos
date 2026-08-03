@@ -49,6 +49,27 @@ Reproducible bootstrap/automation scripts to set up tools (OpenSSH, Docker, Git,
 - **Secrets:** `/etc/net-failover/networks.conf` holds plain-text passphrases,
   is mode `0600`, is `.gitignore`d, and `bootstrap.sh` never overwrites it. Only
   `networks.conf.example` is committed.
+- **Windows twin** (`net-failover/windows/`): same policy and `networks.conf`
+  format. Interface metrics (`Set-NetIPInterface`, 10 good / 5000 dead / 50
+  WiFi) instead of route metrics; `netsh wlan` XML profiles (`nf-` prefix,
+  `connectionMode=manual`) instead of nmcli; a SYSTEM scheduled task at boot
+  instead of a systemd unit. `-Status`/`-Check` need no admin.
+- **Never parse localized `netsh` labels.** Only the literal `SSID` tokens are
+  locale-stable; connection state comes from `Get-NetAdapter`
+  (`MediaConnectionState`) + `Get-NetIPAddress`, and SSID→profile-name mapping
+  reads wlansvc's XML store (`%ProgramData%\Microsoft\Wlansvc\Profiles`).
+- **`ping.exe` exits 0 on "Destination host unreachable"** (a reply arrived,
+  just not from the target) — success requires `TTL=` in the output.
+- **Interface-bound probes on Windows** bind to the adapter's IPv4
+  (`curl.exe --interface <ip>`, `ping -S <ip>`); the default strong-host model
+  then forces egress out that NIC. `curl.exe --interface` only takes an IP on
+  Windows, not an interface name.
+- **`icacls` with SID form** (`*S-1-5-32-544`), never group names — names like
+  `Administrators` don't exist on non-English Windows.
+- **Win11 gates WiFi scans** behind Location services (verified: even elevated
+  shells get "Access is denied" with Location off) and has no forced rescan,
+  so an empty scan makes the daemon try the configured list blind instead of
+  concluding nothing is in range.
 
 ## Verifying changes
 
