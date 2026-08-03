@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Mock ip for the net-failover test harness.
+# Only the two forms the daemon uses are implemented: per-device address
+# lookup (has_ipv4) and the default-route dump (--status output).
+set -u
+M="${MOCK_DIR:?MOCK_DIR not set}"
+
+dev=""
+prev=""
+for a in "$@"; do
+    [ "$prev" = "dev" ] && dev="$a"
+    prev="$a"
+done
+
+case "$*" in
+    *"route show default"*)
+        for d in eth0 wlan0; do
+            st=$(awk -F: -v x="$d" '$1==x{print $3}' "$M/devices" 2>/dev/null)
+            [ "$st" = "connected" ] || continue
+            m=$(cat "$M/metric_$d" 2>/dev/null || echo 100)
+            echo "default via 192.168.1.1 dev $d proto dhcp metric $m"
+        done
+        ;;
+    *addr*)
+        st=$(awk -F: -v x="$dev" '$1==x{print $3}' "$M/devices" 2>/dev/null)
+        if [ "$st" = "connected" ]; then
+            case "$dev" in
+                eth0)  echo "eth0             UP             192.168.1.14/24" ;;
+                wlan0) echo "wlan0            UP             192.168.1.8/24" ;;
+                *)     echo "$dev             UP             192.168.1.50/24" ;;
+            esac
+        else
+            echo "$dev             DOWN"
+        fi
+        ;;
+esac
+exit 0

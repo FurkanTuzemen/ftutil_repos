@@ -1,0 +1,46 @@
+# net-failover — WiFi networks to fall back to, in PRIORITY ORDER.
+# The first entry that is in range AND actually reaches the internet wins.
+#
+# Copy to /etc/net-failover/networks.conf (bootstrap.sh does this for you on a
+# first install) and fill in your own networks. This file contains NO real
+# credentials and the live copy is never committed -- it is mode 0600, root-only.
+#
+# Format:   SSID|PASSWORD|FLAGS
+#
+#   SSID       the network name, exactly as broadcast (case sensitive)
+#   PASSWORD   WPA/WPA2 passphrase, plain text.
+#              Use @saved to reuse a password already stored in NetworkManager.
+#              Leave empty for an open network.
+#   FLAGS      optional, comma separated. Currently supported: hidden
+#
+# See what is in range:   sudo net-failover --scan
+# Apply changes:          sudo systemctl restart net-failover
+
+# --- examples, replace with your own -----------------------------------------
+
+# HomeRouter|correct-horse-battery-staple
+# Office-5G|another-passphrase
+# BackupAP|third-passphrase|hidden
+# OpenCafeWiFi|
+
+# -----------------------------------------------------------------------------
+# Ordering advice
+#
+# WiFi served by the SAME router that feeds your ethernet port is a good
+# fallback for a dead cable, switch or NIC -- but not for an ISP outage, since
+# that router's WiFi is equally offline in that case.
+#
+# A phone / 4G hotspot is the only entry that survives an ISP outage, so it is
+# worth listing as a last resort. To confirm an uplink really is independent,
+# compare public IPs:
+#
+#   curl --interface eth0  https://api.ipify.org
+#   curl --interface wlan0 https://api.ipify.org
+#
+# Different answers mean genuinely separate uplinks -- even if both hand out
+# addresses on the same private subnet.
+#
+# A stored WPA key is hashed together with the SSID, so a key saved under a
+# misspelled SSID can never authenticate against the correct one. If a network
+# refuses to associate, re-enter the plain-text passphrase here rather than
+# relying on @saved.
