@@ -33,8 +33,11 @@ jobs:
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:ci
 
+      # Keep this in sync with the toolchain pinned in
+      # FurkanTuzemen/ConanAutomation (ftdeps/model.py) - the Pi's server is
+      # synced to the same version by its bootstrap.
       - name: Install Conan
-        run: pipx install conan
+        run: pipx install conan==2.7.1
 
       - name: Register the self-hosted remote
         run: |

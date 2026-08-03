@@ -28,6 +28,29 @@ MOUNT_GID="${SUDO_GID:-1000}"
 command_exists docker || { log "Docker is required - run docker/linux/bootstrap.sh first."; exit 1; }
 docker compose version >/dev/null 2>&1 || { log "The Docker Compose plugin is required."; exit 1; }
 
+# ---- 0. Sync toolchain versions with ConanAutomation ------------------------
+# The conan-server version (and python base image) must ALWAYS match the
+# toolchain pinned in ftdeps/model.py of FurkanTuzemen/ConanAutomation, so the
+# server tracks whatever Conan the automation/CI uses. Every run re-reads the
+# pin; if the repo is unreachable the existing .env values are kept.
+CONAN_AUTOMATION_REPO="${CONAN_AUTOMATION_REPO:-git@github.com:FurkanTuzemen/ConanAutomation.git}"
+sync_user="${SUDO_USER:-$(id -un)}"
+synced_conan=""
+synced_python=""
+tmp_dir="$(sudo -u "$sync_user" mktemp -d)"
+if sudo --preserve-env=SSH_AUTH_SOCK -u "$sync_user" \
+        git clone --quiet --depth 1 "$CONAN_AUTOMATION_REPO" "$tmp_dir/ConanAutomation" 2>/dev/null; then
+    model_py="$tmp_dir/ConanAutomation/ftdeps/model.py"
+    synced_conan="$(grep -Eo 'conan_version: str = "[^"]+"' "$model_py" | head -n1 | grep -Eo '[0-9][0-9.]*' || true)"
+    synced_python="$(grep -Eo 'python_version: str = "[^"]+"' "$model_py" | head -n1 | grep -Eo '[0-9][0-9.]*' || true)"
+fi
+rm -rf "$tmp_dir"
+if [[ -n "$synced_conan" ]]; then
+    log "ConanAutomation toolchain: conan $synced_conan, python ${synced_python:-3.11}"
+else
+    log "WARNING: could not read ConanAutomation - keeping the current version pin"
+fi
+
 # ---- 1. Persistent mount for the package disk -------------------------------
 if [[ ! -e "/dev/disk/by-uuid/$DISK_UUID" ]]; then
     log "Disk with UUID $DISK_UUID is not connected - plug it in and re-run."
@@ -69,6 +92,21 @@ EOF
 else
     log ".env already exists, keeping it"
 fi
+
+# Write the synced (or default) toolchain pin into .env - this is what the
+# compose build args read.
+set_env_var() {
+    if grep -q "^$1=" "$ENV_FILE"; then
+        sed -i "s|^$1=.*|$1=$2|" "$ENV_FILE"
+    else
+        echo "$1=$2" >> "$ENV_FILE"
+    fi
+}
+current_conan="$(grep -E '^CONAN_SERVER_VERSION=' "$ENV_FILE" | cut -d= -f2 || true)"
+set_env_var CONAN_SERVER_VERSION "${synced_conan:-${current_conan:-2.7.1}}"
+current_python="$(grep -E '^CONAN_PYTHON_VERSION=' "$ENV_FILE" | cut -d= -f2 || true)"
+set_env_var CONAN_PYTHON_VERSION "${synced_python:-${current_python:-3.11}}"
+log "Server pinned to conan-server $(grep -E '^CONAN_SERVER_VERSION=' "$ENV_FILE" | cut -d= -f2)"
 
 # ---- 3. Build and start the server ------------------------------------------
 (cd "$SCRIPT_DIR" && docker compose up -d --build)

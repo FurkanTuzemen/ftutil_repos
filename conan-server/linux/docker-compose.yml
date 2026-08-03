@@ -1,7 +1,12 @@
 services:
   conan-server:
-    build: ./server
-    image: ftutil/conan-server:2.31.1
+    build:
+      context: ./server
+      args:
+        # Synced with ConanAutomation's toolchain by bootstrap.sh (see .env).
+        CONAN_SERVER_VERSION: ${CONAN_SERVER_VERSION:-2.7.1}
+        PYTHON_VERSION: ${CONAN_PYTHON_VERSION:-3.11}
+    image: ftutil/conan-server:${CONAN_SERVER_VERSION:-2.7.1}
     container_name: conan-server
     restart: unless-stopped
     init: true

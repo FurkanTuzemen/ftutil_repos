@@ -4,7 +4,8 @@ Self-hosted **Conan 2 remote** — the official [`conan-server`](https://pypi.or
 
 ## Layout / how it works
 
-- `linux/server/` — the Docker image: `python:3.13-slim` plus a **pinned** `conan-server`. At container start `entrypoint.py` renders `server.conf` from environment variables, then execs `conan_server`. All credentials/config live in the compose `.env`, so the image is generic.
+- `linux/server/` — the Docker image: `python:<pinned>-slim` plus a **pinned** `conan-server`. At container start `entrypoint.py` renders `server.conf` from environment variables, then execs `conan_server`. All credentials/config live in the compose `.env`, so the image is generic.
+- **Version policy: the server always matches [`ConanAutomation`](https://github.com/FurkanTuzemen/ConanAutomation).** Every `bootstrap.sh` run reads the toolchain pinned in that repo's `ftdeps/model.py` (`conan_version`, `python_version`) and writes it into `.env`; the compose build args pick it up. Bumping Conan in ConanAutomation + re-running `sudo ./bootstrap.sh` on the Pi is the whole upgrade procedure.
 - `linux/docker-compose.yml` — runs the container (`restart: unless-stopped`, health-checked), publishes port 9300, and bind-mounts the package directory from the external disk to `/data`. `create_host_path` is disabled so a missing disk fails loudly instead of silently storing packages on the SD card.
 - `linux/bootstrap.sh` — idempotent host setup: adds an `/etc/fstab` entry for the storage disk (by UUID, `nofail`, `ntfs3`), mounts it, creates the data directory **alongside the disk's existing data (nothing is erased)**, generates `linux/.env` with random secrets on first run, builds + starts the container, waits for health, prints connection info.
 - `linux/connection-info.sh` — reprints the remote URL(s), users, and client commands any time.
@@ -42,7 +43,7 @@ GitHub-hosted runners can't reach a home-LAN Pi directly. The example workflow j
 
 - Logs: `docker logs -f conan-server` · status: `docker ps`, `./connection-info.sh`
 - Restart/apply `.env` changes: `cd linux && docker compose up -d`
-- Upgrade: bump the version in `linux/server/Dockerfile` **and** the image tag in `docker-compose.yml`, then `docker compose up -d --build`
+- Upgrade: bump `conan_version` in ConanAutomation's `ftdeps/model.py`, then re-run `sudo ./bootstrap.sh` here — it re-syncs the pin and rebuilds. (Override for a one-off: `CONAN_SERVER_VERSION` in `.env` + `docker compose up -d --build`, until the next bootstrap re-syncs.)
 - Add users: extend `CONAN_SERVER_USERS` (`name:pass;name2:pass2`) in `.env`, adjust `CONAN_WRITE_USERS`, re-run `docker compose up -d`
 - Backup: the whole state is the data dir (`/mnt/expansion/conan-server-data`) + `linux/.env`
 - Storage format: recipes and per-configuration binary tarballs (`conan_package.tgz`) under the data dir — platform-agnostic, so the Pi happily serves Windows/Linux/macOS binaries
