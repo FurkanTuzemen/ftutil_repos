@@ -1,6 +1,6 @@
 # Running the Conan server (Linux / Raspberry Pi)
 
-Host-level bootstrap that mounts the storage disk, installs a systemd unit
+Host-level bootstrap that prepares package storage, installs a systemd unit
 and starts the Dockerized server. Meant to be **cloned and run identically**
 on whichever Pi hosts the cache. Full walkthrough from a blank SD card:
 [`../docs/setup-from-scratch.md`](../docs/setup-from-scratch.md).
@@ -17,9 +17,10 @@ sudo ./bootstrap.sh
 
 - Must run as **root** — the script re-checks and exits otherwise. Use `sudo`.
 - **Docker first**: run `docker/linux/bootstrap.sh` from this repo if Docker is missing.
-- The **storage disk must be plugged in**. Default is the Seagate Expansion 4TB
-  (NTFS, mounted at `/mnt/expansion` — existing data on it is left untouched).
-  Other disk: `sudo CONAN_DISK_UUID=<uuid> CONAN_DISK_FSTYPE=ext4 ./bootstrap.sh`.
+- **Storage:** by default, packages go in `/srv/conan-server-data` on the root
+  filesystem (the SD card). To use a dedicated disk instead (ext4 recommended;
+  existing data on it is left untouched):
+  `sudo CONAN_DISK_UUID=<uuid> CONAN_DISK_FSTYPE=ext4 ./bootstrap.sh`.
 - First run generates `.env` here with a random password for the `ci` user.
   Reprint access details any time: `./connection-info.sh` (no root needed).
 - Idempotent: safe to re-run; it keeps an existing `.env` and fstab entry.
@@ -41,10 +42,10 @@ sudo ./bootstrap.sh
 ```bash
 ./doctor.sh                          # first stop when anything looks wrong
 docker logs -f conan-server          # server logs
-sudo systemctl restart conan-server  # restart (waits for the disk mount)
+sudo systemctl restart conan-server  # restart (waits for the storage mount)
 docker compose up -d                 # apply .env changes
 ```
 
-If the Pi booted **without** the disk (or the NTFS volume is dirty), see
+If the server doesn't come up (or a dedicated disk didn't mount), see
 [`../docs/troubleshooting.md`](../docs/troubleshooting.md).
 More: [`../docs/operations.md`](../docs/operations.md).

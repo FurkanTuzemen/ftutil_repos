@@ -2,19 +2,22 @@
 # the @...@ placeholders.
 #
 # Why this exists (on top of the container's restart policy):
-#  * Start: RequiresMountsFor= makes the server start only AFTER the package
-#    disk is mounted. Docker's own restart-on-boot can race the USB disk and
-#    fail with "failed to fulfil mount request ... no such file or directory".
-#  * Stop: the same dependency orders the stop BEFORE the disk is unmounted on
-#    shutdown, so the container never holds files open while the NTFS volume is
-#    being unmounted - an unclean NTFS unmount is what marks the volume "dirty"
-#    and makes the next boot refuse to mount it (see conan-server/docs/troubleshooting.md).
+#  * Start: RequiresMountsFor= makes the server start only AFTER whatever
+#    filesystem holds the package directory is mounted. Docker's own
+#    restart-on-boot can race a USB disk and fail with "failed to fulfil mount
+#    request ... no such file or directory" - and Docker does not retry that.
+#  * Stop: the same dependency orders the stop BEFORE that filesystem is
+#    unmounted on shutdown, so the container never holds files open during
+#    the unmount (an unclean unmount is what left the old NTFS disk "dirty";
+#    see conan-server/docs/troubleshooting.md).
+# With packages on the root filesystem this is a no-op ordering-wise but
+# still gives a clean, explicit start/stop.
 [Unit]
 Description=Conan server (docker compose in @LINUX_DIR@)
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target
-RequiresMountsFor=@MOUNT_POINT@
+RequiresMountsFor=@DATA_DIR@
 
 [Service]
 Type=oneshot

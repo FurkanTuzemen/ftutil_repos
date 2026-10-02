@@ -86,11 +86,12 @@ Reproducible bootstrap/automation scripts to set up tools (OpenSSH, Docker, Git,
   drift (commit it). Transitive pip deps are locked per version in
   `linux/server/constraints/` - an unlocked resolve already drifted
   (PyJWT/idna/charset-normalizer) two months after the first deploy.
-- **The package disk is NTFS** (it also holds personal data). `ntfs3` refuses
-  to mount a *dirty* volume (`volume is dirty and "force" flag is not set!`);
-  with `nofail` the Pi boots fine without it and nothing is visibly wrong.
-  That kept the server down ~8 weeks (2026-08/10). Fix: `ntfsfix -d`, then
-  `chkdsk /f` on Windows. `doctor.sh` detects it.
+- **Packages live on the root filesystem by default** (`CONAN_DISK_UUID=none`,
+  `/srv/conan-server-data`, ext4 SD card). Until 2026-10-02 they were on an
+  NTFS USB disk shared with personal data; `ntfs3` refuses to mount a *dirty*
+  volume (`volume is dirty and "force" flag is not set!`), and with `nofail`
+  the Pi boots fine without it, so nothing looked wrong for ~8 weeks. A
+  dedicated disk is still supported (`CONAN_DISK_UUID=<uuid>`) - use ext4.
 - **`create_host_path: false`** on the data bind mount is deliberate: a missing
   disk must fail the container, not silently create an empty dir on the SD card.
   Docker does not retry that start failure - hence the systemd unit with

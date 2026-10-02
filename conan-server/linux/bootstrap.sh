@@ -12,13 +12,15 @@
 # also the upgrade procedure (see conan-server/docs/operations.md).
 #
 # Tunables (export before running, or keep them in .env after the first run):
-#   CONAN_DISK_UUID      partition UUID of the package disk  (default: Seagate 4TB)
-#   CONAN_DISK_FSTYPE    ntfs3 | ext4 | ...                   (default: ntfs3)
-#   CONAN_MOUNT_POINT    where to mount it                    (default: /mnt/expansion)
-#   CONAN_DATA_DIR       package dir on the disk              (default: <mount>/conan-server-data)
+#   CONAN_DISK_UUID      "none" = store packages on the root filesystem (default),
+#                        or the partition UUID of a dedicated package disk (sudo blkid)
+#   CONAN_DISK_FSTYPE    ext4 | ntfs3 | ...   (default: ext4; only with a disk)
+#   CONAN_MOUNT_POINT    where to mount it    (default: /mnt/conan; only with a disk)
+#   CONAN_DATA_DIR       package directory    (default: /srv/conan-server-data,
+#                                              or <mount>/conan-server-data with a disk)
 #   CONAN_PUBLIC_PORT    host port                            (default: 9300)
 #   CONAN_AUTOMATION_SYNC=0   skip reading the pin from ConanAutomation
-#   CONAN_INSTALL_SYSTEMD=0   don't install the systemd unit
+#   CONAN_INSTALL_SYSTEMD=0   don't install the systemd unit (remembered in .env)
 #   CONAN_CONTAINER_NAME, COMPOSE_PROJECT_NAME   only for a throwaway test
 #                             instance next to the real one (see CLAUDE.md)
 set -euo pipefail
@@ -29,18 +31,27 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_root
 log "Bootstrapping conan-server from $LINUX_DIR"
 
-# The user who ran sudo owns the repo, .env and the files on the NTFS mount.
+# The user who ran sudo owns the repo, .env and the package directory.
 RUN_USER="${SUDO_USER:-$(id -un)}"
 RUN_UID="${SUDO_UID:-$(id -u)}"
 RUN_GID="${SUDO_GID:-$(id -g)}"
 
 # Precedence: exported variable > existing .env > default.
 pick() { local v="${!1:-}"; [[ -z "$v" ]] && v="$(env_get "$1")"; echo "${v:-$2}"; }
-DISK_UUID="$(pick CONAN_DISK_UUID DE5ECE7A5ECE4B4B)"   # Seagate Expansion 4TB, NTFS
-DISK_FSTYPE="$(pick CONAN_DISK_FSTYPE ntfs3)"
-MOUNT_POINT="$(pick CONAN_MOUNT_POINT /mnt/expansion)"
-DATA_DIR="$(pick CONAN_DATA_DIR "$MOUNT_POINT/conan-server-data")"
+# Default: packages on the root filesystem (ext4 on the SD card). A dedicated
+# disk is opt-in - the first deployment kept them on an NTFS USB disk, and a
+# dirty NTFS volume took the server down for 8 weeks (docs/troubleshooting.md).
+DISK_UUID="$(pick CONAN_DISK_UUID none)"
+if [[ "$DISK_UUID" == none ]]; then
+    DISK_FSTYPE="" MOUNT_POINT=""
+    DATA_DIR="$(pick CONAN_DATA_DIR /srv/conan-server-data)"
+else
+    DISK_FSTYPE="$(pick CONAN_DISK_FSTYPE ext4)"
+    MOUNT_POINT="$(pick CONAN_MOUNT_POINT /mnt/conan)"
+    DATA_DIR="$(pick CONAN_DATA_DIR "$MOUNT_POINT/conan-server-data")"
+fi
 PORT="$(pick CONAN_PUBLIC_PORT 9300)"
+INSTALL_SYSTEMD="$(pick CONAN_INSTALL_SYSTEMD 1)"
 
 command_exists docker || die "Docker is required - run docker/linux/bootstrap.sh from this repo first."
 docker compose version >/dev/null 2>&1 || die "The Docker Compose plugin is required - run docker/linux/bootstrap.sh from this repo first."
@@ -79,11 +90,12 @@ PYTHON_VERSION="$(env_get CONAN_PYTHON_VERSION "$VERSIONS_FILE")"
     log "WARNING: no dependency lock for conan-server $SERVER_VERSION - run ./lock-deps.sh after this and commit it"
 log "Server version: conan-server $SERVER_VERSION on python $PYTHON_VERSION"
 
-# ---- 2. Persistent mount for the package disk --------------------------------
-if [[ ! -e "/dev/disk/by-uuid/$DISK_UUID" ]]; then
+# ---- 2. Package storage (+ persistent mount if on a dedicated disk) ----------
+if [[ "$DISK_UUID" == none ]]; then
+    log "No dedicated disk (CONAN_DISK_UUID=none) - packages on the root filesystem"
+elif [[ ! -e "/dev/disk/by-uuid/$DISK_UUID" ]]; then
     die "Disk with UUID $DISK_UUID is not connected - plug it in and re-run (or set CONAN_DISK_UUID; see: sudo blkid)."
-fi
-if ! grep -q "UUID=$DISK_UUID" /etc/fstab; then
+elif ! grep -q "UUID=$DISK_UUID" /etc/fstab; then
     cp /etc/fstab /etc/fstab.bak.conan-server
     if [[ "$DISK_FSTYPE" == ntfs* ]]; then
         opts="defaults,nofail,uid=$RUN_UID,gid=$RUN_GID,umask=022"
@@ -96,8 +108,10 @@ if ! grep -q "UUID=$DISK_UUID" /etc/fstab; then
 else
     log "fstab entry for UUID=$DISK_UUID already present"
 fi
-mkdir -p "$MOUNT_POINT"
-if ! mountpoint -q "$MOUNT_POINT"; then
+if [[ "$DISK_UUID" != none ]]; then
+    mkdir -p "$MOUNT_POINT"
+fi
+if [[ "$DISK_UUID" != none ]] && ! mountpoint -q "$MOUNT_POINT"; then
     if ! mount "$MOUNT_POINT"; then
         if dmesg 2>/dev/null | tail -n 50 | grep -q 'volume is dirty'; then
             log "The NTFS volume is marked dirty (unclean unplug/shutdown). See conan-server/docs/troubleshooting.md:"
@@ -135,8 +149,12 @@ else
 fi
 # Host settings + version pin are (re)written on every run.
 env_set CONAN_DISK_UUID "$DISK_UUID"
-env_set CONAN_DISK_FSTYPE "$DISK_FSTYPE"
-env_set CONAN_MOUNT_POINT "$MOUNT_POINT"
+if [[ "$DISK_UUID" == none ]]; then
+    sed -i '/^CONAN_DISK_FSTYPE=/d; /^CONAN_MOUNT_POINT=/d' "$ENV_FILE"
+else
+    env_set CONAN_DISK_FSTYPE "$DISK_FSTYPE"
+    env_set CONAN_MOUNT_POINT "$MOUNT_POINT"
+fi
 env_set CONAN_DATA_DIR "$DATA_DIR"
 env_set CONAN_SERVER_VERSION "$SERVER_VERSION"
 env_set CONAN_PYTHON_VERSION "$PYTHON_VERSION"
@@ -144,13 +162,15 @@ env_set CONAN_PYTHON_VERSION "$PYTHON_VERSION"
 # name, or `up --remove-orphans` / `down` would act on the real server.
 [[ -n "${CONAN_CONTAINER_NAME:-}" ]] && env_set CONAN_CONTAINER_NAME "$CONAN_CONTAINER_NAME"
 [[ -n "${COMPOSE_PROJECT_NAME:-}" ]] && env_set COMPOSE_PROJECT_NAME "$COMPOSE_PROJECT_NAME"
+# Remembered so a later re-run of a test instance can't install the unit.
+[[ "$INSTALL_SYSTEMD" == "0" ]] && env_set CONAN_INSTALL_SYSTEMD 0
 chown "$RUN_UID:$RUN_GID" "$ENV_FILE" "$VERSIONS_FILE"
 chmod 600 "$ENV_FILE"
 
-# ---- 4. systemd unit: start after the disk mounts, stop before it unmounts ---
-if [[ "${CONAN_INSTALL_SYSTEMD:-1}" != "0" ]] && command_exists systemctl; then
+# ---- 4. systemd unit: start after the storage mounts, stop before unmount ----
+if [[ "$INSTALL_SYSTEMD" != "0" ]] && command_exists systemctl; then
     unit=/etc/systemd/system/conan-server.service
-    sed -e "s|@LINUX_DIR@|$LINUX_DIR|g" -e "s|@MOUNT_POINT@|$MOUNT_POINT|g" \
+    sed -e "s|@LINUX_DIR@|$LINUX_DIR|g" -e "s|@DATA_DIR@|$DATA_DIR|g" \
         "$LINUX_DIR/systemd/conan-server.service" > "$unit.new"
     if ! cmp -s "$unit.new" "$unit" 2>/dev/null; then
         mv "$unit.new" "$unit"
@@ -175,7 +195,7 @@ if [[ -n "$owner" && "$owner" != "$project" ]]; then
     docker rm -f "$container" >/dev/null
 fi
 (cd "$LINUX_DIR" && docker compose up -d --build --remove-orphans)
-if [[ "${CONAN_INSTALL_SYSTEMD:-1}" != "0" ]] && command_exists systemctl; then
+if [[ "$INSTALL_SYSTEMD" != "0" ]] && command_exists systemctl; then
     # Mark the oneshot unit active so the shutdown ordering applies this boot.
     systemctl start conan-server.service
 fi

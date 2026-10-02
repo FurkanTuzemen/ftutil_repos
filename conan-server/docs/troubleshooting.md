@@ -8,10 +8,10 @@ usually the cause, and everything after it follows from it.
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| Container `Exited (127)`, error `failed to fulfil mount request: open /mnt/expansion/conan-server-data: no such file or directory` | The disk is not mounted, so the bind source doesn't exist (by design; see `create_host_path: false`) | Fix the mount (rows below), then `sudo systemctl restart conan-server` |
-| `systemctl --failed` shows `mnt-expansion.mount`; `dmesg` shows `ntfs3(sda2): volume is dirty and "force" flag is not set!` | The NTFS volume was not unmounted cleanly (power loss, unplugged while mounted, or Windows hibernation / Fast Startup) | [Dirty NTFS volume](#dirty-ntfs-volume) |
-| `doctor.sh`: disk UUID not connected | USB disk unplugged, or not powered | Reconnect it, check `lsblk`, then `sudo mount /mnt/expansion && sudo systemctl restart conan-server` |
-| Mount is read-only | ntfs3 found errors and fell back to read-only | `chkdsk /f` on Windows, or `ntfsfix -d` as below |
+| Container `Exited (127)`, error `failed to fulfil mount request: open <data dir>: no such file or directory` | The data directory doesn't exist: a dedicated disk isn't mounted, or the directory was removed (by design; see `create_host_path: false`) | Fix the mount (rows below) or re-run `sudo ./bootstrap.sh`, then `sudo systemctl restart conan-server` |
+| *(dedicated NTFS disk)* `systemctl --failed` shows a `mnt-*.mount`; `dmesg` shows `ntfs3(sda2): volume is dirty and "force" flag is not set!` | The NTFS volume was not unmounted cleanly (power loss, unplugged while mounted, or Windows hibernation / Fast Startup) | [Dirty NTFS volume](#dirty-ntfs-volume) |
+| *(dedicated disk)* `doctor.sh`: disk UUID not connected | USB disk unplugged, or not powered | Reconnect it, check `lsblk`, then `sudo mount <mount point> && sudo systemctl restart conan-server` |
+| *(dedicated disk)* Mount is read-only | The filesystem found errors and fell back to read-only | `chkdsk /f` on Windows, or `ntfsfix -d` as below |
 | `conan remote login` → connection refused / timeout | The server is down, or the client isn't on the tailnet | `doctor.sh` on the Pi; `tailscale status` on the client |
 | Login works, but `conan upload`/`install` hangs or fails on file transfer | `CONAN_PUBLIC_HOSTNAME` isn't reachable from the client (e.g. it's the LAN IP while the client is a CI runner on the tailnet) | Set it to the Tailscale IP or MagicDNS name in `.env`, then `docker compose up -d` |
 | 401 on everything | Not logged in (`CONAN_READ_USERS=?` needs auth), or the JWT expired (120 min) | `conan remote login ftpi ci` |
@@ -23,6 +23,11 @@ usually the cause, and everything after it follows from it.
 | Server came back after a reboot but the unit shows `failed` | The disk mounted late; the unit depends on the mount | `sudo systemctl restart conan-server`; check `journalctl -u conan-server -b` |
 
 ## Dirty NTFS volume
+
+This only applies to packages on an NTFS disk, which was the setup until
+2026-10-02. On ext4 (the SD card now, or a dedicated ext4 disk) it can't
+happen. It's kept here for the history, and for whenever an NTFS disk is
+mounted on a Pi.
 
 Linux's `ntfs3` driver refuses to mount a volume whose dirty flag is set.
 Because the fstab entry has `nofail`, the Pi still boots, but without the
@@ -54,9 +59,8 @@ also holds personal data.
   use" state.
 - The systemd unit stops the container before the disk is unmounted, so a
   clean shutdown can't leave files open.
-- To remove this failure mode entirely, use an ext4 partition or disk for
-  packages (`CONAN_DISK_FSTYPE=ext4`; see
-  [operations.md](operations.md#move-to-a-different-disk)).
+- To remove this failure mode entirely, keep packages on ext4. That is
+  what the setup has done since 2026-10-02.
 
 To check read-only without changing anything (safe on a dirty volume):
 
@@ -105,6 +109,8 @@ was logged once, and no CI job ran against the cache in that period.
   and prints the fix.
 - `bootstrap.sh` recognises a dirty volume when mounting fails and prints the
   `ntfsfix` command.
+- Packages moved from the NTFS disk to the SD card (ext4,
+  `/srv/conan-server-data`), which removes this failure mode.
 - Still open: alerting. Ideas: a cron'd `doctor.sh` that sends a
   notification on failure, or a scheduled GitHub Actions run of
   `conan_server_test`, which fails visibly if the server is down.

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Health check for the whole chain the server depends on:
-#   disk connected -> mounted rw -> not NTFS-dirty -> data dir -> systemd unit
+#   [dedicated disk: connected -> mounted rw -> not NTFS-dirty] -> data dir -> systemd unit
 #   -> container running/healthy -> ping -> login -> search -> version match.
 #
 #   ./doctor.sh          # no root needed (uses sudo -n for dmesg if allowed)
@@ -34,39 +34,50 @@ echo "conan-server doctor - $(hostname), $(date '+%Y-%m-%d %H:%M:%S')"
 
 # ---- Storage -------------------------------------------------------------------
 echo "Storage"
-if [[ -n "$DISK_UUID" && -e "/dev/disk/by-uuid/$DISK_UUID" ]]; then
-    pass "disk UUID=$DISK_UUID connected ($(readlink -f "/dev/disk/by-uuid/$DISK_UUID"))"
+if [[ -z "$DISK_UUID" || "$DISK_UUID" == none ]]; then
+    pass "no dedicated disk - packages on $(findmnt -no SOURCE,FSTYPE -T "$DATA_DIR" 2>/dev/null | tr -s ' ' ' ' || echo '?')"
 else
-    fail "disk UUID=${DISK_UUID:-?} not connected"
-    hint "plug the disk in; if it's a different disk, set CONAN_DISK_UUID and re-run bootstrap"
-fi
-
-if mountpoint -q "$MOUNT_POINT" 2>/dev/null; then
-    opts="$(findmnt -no OPTIONS "$MOUNT_POINT")"
-    if [[ ",$opts," == *",rw,"* ]]; then
-        pass "$MOUNT_POINT mounted read-write ($(findmnt -no FSTYPE "$MOUNT_POINT"))"
+    if [[ -e "/dev/disk/by-uuid/$DISK_UUID" ]]; then
+        pass "disk UUID=$DISK_UUID connected ($(readlink -f "/dev/disk/by-uuid/$DISK_UUID"))"
     else
-        fail "$MOUNT_POINT is mounted READ-ONLY ($opts)"
-        hint "usually NTFS errors - see conan-server/docs/troubleshooting.md"
+        fail "disk UUID=$DISK_UUID not connected"
+        hint "plug the disk in; if it's a different disk, set CONAN_DISK_UUID and re-run bootstrap"
     fi
-else
-    fail "$MOUNT_POINT is not mounted"
-    if [[ "$FSTYPE" == ntfs* ]] && kmsg | grep -q 'volume is dirty'; then
-        hint "kernel says the NTFS volume is DIRTY (unclean unplug/power loss). Fix:"
-        hint "sudo ntfsfix -d /dev/disk/by-uuid/$DISK_UUID && sudo mount $MOUNT_POINT && sudo systemctl restart conan-server"
-    else
-        hint "sudo mount $MOUNT_POINT   (then check: dmesg | tail)"
-    fi
-fi
 
-if [[ "$FSTYPE" == ntfs* ]] && kmsg | grep -q 'It is recommened to use chkdsk'; then
-    warn "kernel recommended chkdsk for the NTFS volume this boot - run 'chkdsk /f' on Windows when convenient"
+    if mountpoint -q "$MOUNT_POINT" 2>/dev/null; then
+        opts="$(findmnt -no OPTIONS "$MOUNT_POINT")"
+        if [[ ",$opts," == *",rw,"* ]]; then
+            pass "$MOUNT_POINT mounted read-write ($(findmnt -no FSTYPE "$MOUNT_POINT"))"
+        else
+            fail "$MOUNT_POINT is mounted READ-ONLY ($opts)"
+            hint "usually filesystem errors - see conan-server/docs/troubleshooting.md"
+        fi
+    else
+        fail "$MOUNT_POINT is not mounted"
+        if [[ "$FSTYPE" == ntfs* ]] && kmsg | grep -q 'volume is dirty'; then
+            hint "kernel says the NTFS volume is DIRTY (unclean unplug/power loss). Fix:"
+            hint "sudo ntfsfix -d /dev/disk/by-uuid/$DISK_UUID && sudo mount $MOUNT_POINT && sudo systemctl restart conan-server"
+        else
+            hint "sudo mount $MOUNT_POINT   (then check: dmesg | tail)"
+        fi
+    fi
+
+    if [[ "$FSTYPE" == ntfs* ]] && kmsg | grep -q 'It is recommened to use chkdsk'; then
+        warn "kernel recommended chkdsk for the NTFS volume this boot - run 'chkdsk /f' on Windows when convenient"
+    fi
 fi
 
 if [[ -d "$DATA_DIR" ]]; then
-    pass "data dir $DATA_DIR ($(du -sh "$DATA_DIR" 2>/dev/null | cut -f1) used, $(df -h --output=avail "$DATA_DIR" | tail -1 | tr -d ' ') free)"
+    use_pct="$(df --output=pcent "$DATA_DIR" | tail -1 | tr -dc '0-9')"
+    msg="data dir $DATA_DIR ($(du -sh "$DATA_DIR" 2>/dev/null | cut -f1) used, $(df -h --output=avail "$DATA_DIR" | tail -1 | tr -d ' ') free)"
+    if (( use_pct >= 90 )); then
+        warn "$msg - filesystem ${use_pct}% full"
+    else
+        pass "$msg"
+    fi
 else
     fail "data dir $DATA_DIR missing"
+    hint "sudo ./bootstrap.sh"
 fi
 
 # ---- Service -------------------------------------------------------------------

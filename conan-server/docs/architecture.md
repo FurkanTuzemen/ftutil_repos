@@ -8,14 +8,14 @@
 │  tailscaled 100.85.113.90                                                   │
 │        │ :9300                                                              │
 │  ┌─────▼────────────────────────────┐   systemd: conan-server.service       │
-│  │ container "conan-server"         │   (RequiresMountsFor=/mnt/expansion)  │
+│  │ container "conan-server"         │   (RequiresMountsFor=<data dir>)      │
 │  │  entrypoint.py → server.conf     │                                       │
 │  │  conan_server (Bottle, HTTP)     │                                       │
 │  │  /data ──────────────────────────┼──bind──┐                              │
 │  └──────────────────────────────────┘        │                              │
-│                                    /mnt/expansion/conan-server-data         │
-│                                    (USB Seagate 4 TB, NTFS via ntfs3)       │
-│  SD card: OS, Docker, ~/ftutil_repos, conan-server/linux/.env (chmod 600)   │
+│                                    /srv/conan-server-data                   │
+│  SD card (ext4): OS, Docker, ~/ftutil_repos, conan-server/linux/.env, and   │
+│                  the package store above                                    │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -28,8 +28,8 @@
 | Container | `restart: unless-stopped`, `init: true`, health check on `/v1/ping` every 30 s, json-file logs capped at 3×10 MB | `linux/docker-compose.yml` |
 | Config + secrets | `linux/.env`, generated once by bootstrap; gitignored, chmod 600 | `linux/.env.example` documents every key |
 | Version pin | `conan-server/versions.env`, committed; bootstrap keeps it equal to ConanAutomation's toolchain | `versions.env` |
-| Package store | Plain files on the USB disk, bind-mounted to `/data` | `CONAN_DATA_DIR` |
-| Boot ordering | systemd oneshot unit that runs `docker compose up -d` after the disk is mounted and `docker compose stop` before it is unmounted | `linux/systemd/conan-server.service` |
+| Package store | Plain files in `/srv/conan-server-data` on the root filesystem, bind-mounted to `/data`. Optionally on a dedicated disk (`CONAN_DISK_UUID`). | `CONAN_DATA_DIR` |
+| Boot ordering | systemd oneshot unit that runs `docker compose up -d` after the data directory's filesystem is mounted and `docker compose stop` before it is unmounted | `linux/systemd/conan-server.service` |
 | Network | Tailscale on the host. The server speaks plain HTTP and is never exposed to the internet. | (host setup; see setup doc) |
 
 ## Request flow
@@ -81,15 +81,21 @@ Windows, Linux and macOS binaries, because it never runs them.
   `linux/server/constraints/conan-server-<ver>.txt` keeps rebuilds identical.
   The base image tag (`3.11-slim`) still floats, on purpose, so OS security
   patches arrive on rebuild.
-- **`create_host_path: false` on the data bind mount.** If the disk isn't
-  mounted, the container fails to start. Without this, Docker would silently
-  create an empty directory on the SD card and accept uploads into it.
+- **`create_host_path: false` on the data bind mount.** If the data
+  directory is missing (for example, a dedicated disk didn't mount), the
+  container fails to start. Without this, Docker would silently create an
+  empty directory and accept uploads into it.
 - **A systemd unit on top of the restart policy.** Docker's restart-on-boot
-  can run before the USB disk is mounted. The unit's `RequiresMountsFor=`
-  orders the start after the mount, and on shutdown it stops the container
-  before the NTFS volume is unmounted.
-- **The disk stays NTFS** because it also holds personal data and gets
-  plugged into Windows. This is the weakest part of the setup: an unclean
-  unplug or power loss leaves the volume dirty, and Linux then refuses to
-  mount it (see troubleshooting). A dedicated ext4 partition or disk would
-  remove that failure mode: `CONAN_DISK_FSTYPE=ext4`.
+  can run before a USB disk is mounted, and it doesn't retry a failed bind
+  mount. The unit's `RequiresMountsFor=<data dir>` orders the start after the
+  mount, and on shutdown it stops the container before the unmount.
+- **Packages on the SD card, not the USB disk** (since 2026-10-02). The
+  first deployment used the 4 TB Seagate, which is NTFS because it also holds
+  personal data and gets plugged into Windows. After an unclean shutdown, NTFS
+  is marked "dirty" and Linux refuses to mount it, which kept the server down
+  for 8 weeks. ext4 recovers on its own after a power loss. The store is tiny
+  (KBs to MBs, while the SD card has ~46 GB free), and since it's a cache,
+  SD-card wear and loss are acceptable. `backup.sh` covers it, and `doctor.sh`
+  warns when the filesystem is 90% full. If the cache outgrows the card, move
+  it to a dedicated ext4 disk (`CONAN_DISK_UUID=<uuid>`; see
+  [operations.md](operations.md#move-to-a-different-disk-or-back-to-the-sd-card)).

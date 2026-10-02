@@ -27,7 +27,7 @@ Boot it, then check you can connect: `ssh furkan@ftbeepi.local`.
 
 ```bash
 sudo apt update && sudo apt full-upgrade -y
-sudo apt install -y git curl ntfs-3g     # ntfs-3g provides ntfsfix for dirty-volume repair
+sudo apt install -y git curl
 ```
 
 ## 2. Tailscale
@@ -73,28 +73,22 @@ cd ~/ftutil_repos/conan-server/linux
 newgrp docker            # or log out/in, so `docker` works without sudo
 ```
 
-## 5. Storage disk
+## 5. Package storage
 
-Plug the disk in and find its partition UUID:
+The default needs no setup: packages go in `/srv/conan-server-data` on the
+SD card (ext4). Bootstrap creates the directory.
 
-```bash
-sudo blkid    # e.g. /dev/sda2: LABEL="Seagate Expansion Drive" UUID="DE5ECE7A5ECE4B4B" TYPE="ntfs"
-```
-
-The defaults in `bootstrap.sh` match the Seagate 4 TB NTFS disk. For any
-other disk, pass the UUID and filesystem:
+**Optional: a dedicated disk** for a large cache. Use ext4, not NTFS (see
+[troubleshooting](troubleshooting.md#dirty-ntfs-volume)). Formatting
+**erases** the partition:
 
 ```bash
-sudo CONAN_DISK_UUID=<uuid> CONAN_DISK_FSTYPE=ext4 ./bootstrap.sh
+sudo mkfs.ext4 -L conan /dev/sdX1 && sudo blkid /dev/sdX1    # note the UUID
+sudo CONAN_DISK_UUID=<uuid> ./bootstrap.sh                   # fstab (nofail) + mount at /mnt/conan
 ```
 
-Existing data on the disk is left untouched. Bootstrap only creates
-`conan-server-data/` next to it. To start with an empty, dedicated ext4 disk
-(recommended for robustness; this **erases** the partition):
-
-```bash
-sudo mkfs.ext4 -L conan /dev/sdX1 && sudo blkid /dev/sdX1
-```
+If the disk already holds data, bootstrap leaves it untouched and only
+creates `conan-server-data/` next to it.
 
 ## 6. Bootstrap
 
@@ -106,8 +100,9 @@ What it does:
 
 1. Reads the Conan pin from ConanAutomation. If it differs from
    `conan-server/versions.env`, it rewrites that file; commit the change.
-2. Adds the disk to `/etc/fstab` by UUID with `nofail` (backup:
-   `/etc/fstab.bak.conan-server`), then mounts it.
+2. Creates the package directory. With a dedicated disk, it first adds the
+   disk to `/etc/fstab` by UUID with `nofail` (backup:
+   `/etc/fstab.bak.conan-server`) and mounts it.
 3. On the first run, generates `.env` with a random `ci` password and fresh
    JWT and updown secrets, sets `CONAN_PUBLIC_HOSTNAME` to the Tailscale IP,
    and chmods it to 600.
@@ -116,7 +111,7 @@ What it does:
 6. Prints the connection info.
 
 To restore an existing server instead of starting fresh, copy the backed-up
-`.env` into `conan-server/linux/` and the package archive onto the disk **before**
+`.env` into `conan-server/linux/` and unpack the package archive **before**
 this step. See [operations.md](operations.md#restore).
 
 ## 7. Verify

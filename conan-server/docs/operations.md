@@ -15,8 +15,8 @@ journalctl -u conan-server -b       # why the unit did or didn't start this boot
 ## Start, stop, restart
 
 ```bash
-sudo systemctl restart conan-server   # preferred - respects the disk-mount dependency
-sudo systemctl stop conan-server      # packages stay on the disk
+sudo systemctl restart conan-server   # preferred - respects the storage-mount dependency
+sudo systemctl stop conan-server      # packages stay in CONAN_DATA_DIR
 docker compose up -d                  # apply .env changes (recreates the container)
 ```
 
@@ -88,24 +88,30 @@ On a fresh or replacement host, after steps 1–5 of
 ```bash
 cd ~/ftutil_repos/conan-server/linux
 cp /backup/conan-server-env-<stamp> .env && chmod 600 .env
-# check CONAN_DISK_UUID / CONAN_MOUNT_POINT / CONAN_DATA_DIR / CONAN_PUBLIC_HOSTNAME in .env for the new host
-sudo mkdir -p /mnt/expansion && sudo mount /dev/disk/by-uuid/<uuid> /mnt/expansion
-mkdir -p /mnt/expansion/conan-server-data
-tar -xzf /backup/conan-server-data-<stamp>.tgz -C /mnt/expansion/conan-server-data
+# check CONAN_PUBLIC_HOSTNAME, CONAN_DATA_DIR (and CONAN_DISK_* if using a dedicated disk) in .env
+sudo mkdir -p /srv/conan-server-data
+sudo tar -xzf /backup/conan-server-data-<stamp>.tgz -C /srv/conan-server-data
 sudo ./bootstrap.sh       # keeps the restored .env, adds fstab + unit, starts
 ./doctor.sh
 ```
 
-## Move to a different disk
+## Move to a different disk (or back to the SD card)
 
-1. `sudo ./backup.sh /some/other/place`, or copy the data directory
-   directly.
-2. `sudo systemctl stop conan-server`.
-3. Remove the old disk's line from `/etc/fstab`, plug in the new disk, and
-   copy the data onto it.
-4. In `.env`, delete the `CONAN_DISK_*`, `CONAN_MOUNT_POINT` and
-   `CONAN_DATA_DIR` lines.
-5. Run `sudo CONAN_DISK_UUID=<new> CONAN_DISK_FSTYPE=<fs> ./bootstrap.sh`.
+```bash
+sudo systemctl stop conan-server
+# copy the store to the new location, e.g. a dedicated ext4 disk mounted at /mnt/conan:
+sudo mkdir -p /mnt/conan && sudo mount /dev/disk/by-uuid/<uuid> /mnt/conan
+sudo cp -a /srv/conan-server-data /mnt/conan/
+sudo umount /mnt/conan
+# in .env: delete the CONAN_DATA_DIR line (and any old CONAN_DISK_* / CONAN_MOUNT_POINT lines)
+sudo CONAN_DISK_UUID=<uuid> CONAN_DISK_FSTYPE=ext4 CONAN_MOUNT_POINT=/mnt/conan ./bootstrap.sh
+./doctor.sh
+```
+
+To go back to the SD card, copy the store to `/srv/conan-server-data` and
+run `sudo CONAN_DISK_UUID=none CONAN_DATA_DIR=/srv/conan-server-data ./bootstrap.sh`.
+Bootstrap never removes old fstab entries, so delete the old disk's line from
+`/etc/fstab` yourself if the disk goes away for good.
 
 ## Updating the first (2026-08) deployment
 
@@ -118,11 +124,16 @@ because `.env` and the data directory don't change. It also adds the
 remove the leftovers: `docker network rm linux_default` and
 `docker image rm ftutil/conan-server:2.31.1` (an unused test build).
 
+On 2026-10-02 the packages were also moved off the NTFS Seagate disk
+(`/mnt/expansion/conan-server-data`) to `/srv/conan-server-data`, following
+the procedure above. The old copy on the Seagate was left in place as a
+fallback and can be deleted.
+
 ## Housekeeping
 
 - **Disk usage:** `./doctor.sh` prints used and free space. To prune
   old packages, use a client: `conan remove "<ref>#!latest" -r ftpi -c`
   removes all but the latest recipe revision.
 - **Images:** `docker image prune` after upgrades.
-- **NTFS:** after any unclean shutdown, `chkdsk /f` on Windows when
-  convenient. `doctor.sh` warns when the kernel asked for one.
+- **SD card space:** the cache shares the card with the OS. `doctor.sh` warns
+  at 90% full; prune, or move the cache to a dedicated ext4 disk.
