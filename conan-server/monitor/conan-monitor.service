@@ -1,0 +1,18 @@
+[Unit]
+Description=Check the Conan server (doctor.sh over ssh + HTTP ping) and email on failure
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=conan-monitor
+Group=conan-monitor
+ExecStart=/usr/bin/python3 /usr/local/lib/conan-monitor/conan-monitor.py
+TimeoutStartSec=300
+# Hardening: the monitor only needs its own state dir and the network.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/conan-monitor
+UMask=0077

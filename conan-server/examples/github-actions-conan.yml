@@ -1,18 +1,18 @@
-# Example GitHub Actions job that uses the self-hosted Conan remote on the Pi
-# as a binary cache: prebuilt dependencies are downloaded instead of rebuilt,
-# and anything that DID get built from source is uploaded back so the next
-# run hits the cache.
+# Example GitHub Actions job that uses the Pi's Conan remote as a binary
+# cache: prebuilt dependencies are downloaded instead of rebuilt, and anything
+# built from source is uploaded back so the next run hits the cache.
+# A live, working version of this is FurkanTuzemen/conan_server_test.
 #
-# One-time setup in the GitHub repo (Settings -> Secrets and variables -> Actions):
-#   variable CONAN_REMOTE_URL       e.g. http://<pi-tailscale-name>:9300
-#   variable CONAN_REMOTE_USER      e.g. ci
-#   secret   CONAN_REMOTE_PASSWORD  from conan-server/linux/.env on the Pi
-#   secret   TS_OAUTH_CLIENT_ID     Tailscale OAuth client (with a "tag:ci"
-#   secret   TS_OAUTH_SECRET        tag) - https://github.com/tailscale/github-action
+# One-time setup in the consuming repo (Settings -> Secrets and variables -> Actions):
+#   variable CONAN_REMOTE_URL       http://100.85.113.90:9300   (Pi over Tailscale)
+#   variable CONAN_REMOTE_USER      ci
+#   secret   CONAN_REMOTE_PASSWORD  from .env on the Pi
+#   secret   TS_OAUTH_CLIENT_ID     Tailscale OAuth client allowed to create
+#   secret   TS_OAUTH_SECRET        "tag:ci" nodes (tailscale/github-action)
 #
-# Tailscale lets the cloud runner reach the Pi without exposing the server
-# (plain HTTP) to the public internet. Remember to set CONAN_PUBLIC_HOSTNAME
-# in the Pi's .env to the tailnet name/IP so file-transfer URLs resolve.
+# Tailscale lets the hosted runner reach the Pi without exposing the server
+# (plain HTTP) to the internet. CONAN_PUBLIC_HOSTNAME in the Pi's .env must be
+# the tailnet address, because it is baked into the file-transfer URLs.
 
 name: build
 
@@ -24,8 +24,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Join the runner to the tailnet for the duration of the job.
-      # Drop this step if the runner is self-hosted on the same LAN as the Pi.
+      # Drop this step if the runner is self-hosted on the Pi's LAN.
       - name: Connect to Tailscale
         uses: tailscale/github-action@v3
         with:
@@ -33,9 +32,8 @@ jobs:
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:ci
 
-      # Keep this in sync with the toolchain pinned in
-      # FurkanTuzemen/ConanAutomation (ftdeps/model.py) - the Pi's server is
-      # synced to the same version by its bootstrap.
+      # Must equal CONAN_SERVER_VERSION in ftutil_repos/conan-server/versions.env
+      # (= the ConanAutomation toolchain pin).
       - name: Install Conan
         run: pipx install conan==2.7.1
 
@@ -48,8 +46,6 @@ jobs:
       - name: Install dependencies (cache hit = download, miss = build)
         run: conan install . --build=missing
 
-      # Push anything that was built from source back to the Pi so the next
-      # run downloads it instead. Uploads are skipped for packages already on
-      # the server.
+      # Packages already on the server are skipped.
       - name: Upload new binaries to the cache
         run: conan upload "*" -r ftpi --confirm

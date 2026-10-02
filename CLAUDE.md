@@ -78,9 +78,48 @@ Reproducible bootstrap/automation scripts to set up tools (OpenSSH, Docker, Git,
   so an empty scan makes the daemon try the configured list blind instead of
   concluding nothing is in range.
 
+## conan-server notes (non-obvious details)
+
+- **Version pin = ConanAutomation.** `conan-server/versions.env` must equal
+  `conan_version`/`python_version` in ConanAutomation's `ftdeps/model.py`;
+  `bootstrap.sh` re-reads that pin each run and rewrites `versions.env` on
+  drift (commit it). Transitive pip deps are locked per version in
+  `linux/server/constraints/` - an unlocked resolve already drifted
+  (PyJWT/idna/charset-normalizer) two months after the first deploy.
+- **Packages live on the root filesystem by default** (`CONAN_DISK_UUID=none`,
+  `/srv/conan-server-data`, ext4 SD card). Until 2026-10-02 they were on an
+  NTFS USB disk shared with personal data; `ntfs3` refuses to mount a *dirty*
+  volume (`volume is dirty and "force" flag is not set!`), and with `nofail`
+  the Pi boots fine without it, so nothing looked wrong for ~8 weeks. A
+  dedicated disk is still supported (`CONAN_DISK_UUID=<uuid>`) - use ext4.
+- **`create_host_path: false`** on the data bind mount is deliberate: a missing
+  disk must fail the container, not silently create an empty dir on the SD card.
+  Docker does not retry that start failure - hence the systemd unit with
+  `RequiresMountsFor=` (also stops the container before unmount on shutdown).
+- **`CONAN_PUBLIC_HOSTNAME`** is baked into the signed upload/download URLs, so
+  it must be the Tailscale address CI runners reach, not localhost/LAN.
+- **`CONAN_READ_USERS=?`** = authenticated users only; an *empty* store still
+  answers anonymous searches with 200 `[]` (nothing to permission-check).
+- **conan-monitor runs on ftbitpi** (`conan-server/monitor/`): ssh to the
+  server with a `restrict,command="…/doctor.sh"` key + HTTP ping, email via
+  Resend. Two traps: ftbeepi has **Tailscale SSH** on, so ssh to its tailnet
+  address hangs on an interactive browser check (use `ftbeepi.local`); and the
+  Resend key is domain-restricted to **gorucusu.com** (`550 … not authorized
+  to send emails from …` for any other `from`).
+- **Testing without touching production:** run a second instance on the Pi
+  with `sudo CONAN_INSTALL_SYSTEMD=0 CONAN_CONTAINER_NAME=conan-server-test
+  COMPOSE_PROJECT_NAME=conan-server-test CONAN_PUBLIC_PORT=9301 CONAN_DATA_DIR=/var/tmp/conan-test-data ./bootstrap.sh`
+  from a *separate copy* of the directory (it gets its own `.env`), then
+  `docker compose down` there. Both name overrides are required: with the
+  default project name, `--remove-orphans`/`down` would hit the real server.
+  The test build shares the image tag `ftutil/conan-server:<ver>` with
+  production - don't `docker rmi` it afterwards (that untags the image the
+  real container runs on).
+
 ## Verifying changes
 
-- Bash syntax: `bash -n <script>.sh`.
+- Bash syntax: `bash -n <script>.sh`; lint with shellcheck (on the Pi:
+  `docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:stable -x <scripts>`).
 - PowerShell syntax: parse-check with
   `[System.Management.Automation.Language.Parser]::ParseFile($path,[ref]$null,[ref]$errs)`.
   This machine has `pwsh` 7.x — prefer running checks under it to confirm PS7 compatibility.

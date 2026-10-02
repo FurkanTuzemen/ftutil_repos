@@ -1,7 +1,8 @@
 # Running `install.ps1` (Windows)
 
-Client-side setup: installs the **Conan client** (winget, `JFrog.Conan`) and
-registers the self-hosted remote. The server itself runs on the Pi — see
+Client-side setup: installs the **Conan client** at the version pinned in
+[`../versions.env`](../versions.env) (pip, or winget `JFrog.Conan` if Python is
+missing) and registers the self-hosted remote. `-Login` also logs in. The server itself runs on the Pi — see
 [`../linux/RUNNING.md`](../linux/RUNNING.md).
 
 ## Windows PowerShell 5.1
