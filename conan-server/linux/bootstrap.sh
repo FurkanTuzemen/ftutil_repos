@@ -1,79 +1,123 @@
 #!/usr/bin/env bash
-# Bootstrap: conan-server (Linux / Raspberry Pi host)
-# Mounts the external package-storage disk (without touching its existing
-# data), generates .env secrets on first run, and builds + starts the
-# Dockerized Conan server.
-# Usage: git clone <repo-url> && cd <repo>/conan-server/linux && sudo ./bootstrap.sh
-# Must be idempotent: safe to run again on a machine that's already set up.
+# Bootstrap the Conan server on a Linux host (Raspberry Pi 5 / Debian 13).
+#
+#   git clone <repo-url> ~/ftutil_repos
+#   cd ~/ftutil_repos/conan-server/linux && sudo ./bootstrap.sh
+#
+# Steps: sync the version pin with ConanAutomation -> mount the package disk
+# (existing data untouched) -> generate .env secrets on first run -> install the
+# systemd unit -> build + start the container -> wait for health.
+#
+# Idempotent: safe to re-run on a machine that's already set up. Re-running is
+# also the upgrade procedure (see conan-server/docs/operations.md).
+#
+# Tunables (export before running, or keep them in .env after the first run):
+#   CONAN_DISK_UUID      partition UUID of the package disk  (default: Seagate 4TB)
+#   CONAN_DISK_FSTYPE    ntfs3 | ext4 | ...                   (default: ntfs3)
+#   CONAN_MOUNT_POINT    where to mount it                    (default: /mnt/expansion)
+#   CONAN_DATA_DIR       package dir on the disk              (default: <mount>/conan-server-data)
+#   CONAN_PUBLIC_PORT    host port                            (default: 9300)
+#   CONAN_AUTOMATION_SYNC=0   skip reading the pin from ConanAutomation
+#   CONAN_INSTALL_SYSTEMD=0   don't install the systemd unit
+#   CONAN_CONTAINER_NAME, COMPOSE_PROJECT_NAME   only for a throwaway test
+#                             instance next to the real one (see CLAUDE.md)
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=/dev/null
-source "$SCRIPT_DIR/../../lib/linux/common.sh"
+# shellcheck source=lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 require_root
-log "Starting bootstrap for conan-server"
+log "Bootstrapping conan-server from $LINUX_DIR"
 
-# ---- Tunables (override by exporting before the run) ------------------------
-# UUID of the disk partition that stores packages (find yours with: blkid).
-DISK_UUID="${CONAN_DISK_UUID:-DE5ECE7A5ECE4B4B}"   # Seagate Expansion 4TB, NTFS
-DISK_FSTYPE="${CONAN_DISK_FSTYPE:-ntfs3}"
-MOUNT_POINT="${CONAN_MOUNT_POINT:-/mnt/expansion}"
-DATA_DIR="${CONAN_DATA_DIR:-$MOUNT_POINT/conan-server-data}"
-PORT="${CONAN_PUBLIC_PORT:-9300}"
-# Files on the (NTFS) mount get owned by the invoking user.
-MOUNT_UID="${SUDO_UID:-1000}"
-MOUNT_GID="${SUDO_GID:-1000}"
+# The user who ran sudo owns the repo, .env and the files on the NTFS mount.
+RUN_USER="${SUDO_USER:-$(id -un)}"
+RUN_UID="${SUDO_UID:-$(id -u)}"
+RUN_GID="${SUDO_GID:-$(id -g)}"
 
-command_exists docker || { log "Docker is required - run docker/linux/bootstrap.sh first."; exit 1; }
-docker compose version >/dev/null 2>&1 || { log "The Docker Compose plugin is required."; exit 1; }
+# Precedence: exported variable > existing .env > default.
+pick() { local v="${!1:-}"; [[ -z "$v" ]] && v="$(env_get "$1")"; echo "${v:-$2}"; }
+DISK_UUID="$(pick CONAN_DISK_UUID DE5ECE7A5ECE4B4B)"   # Seagate Expansion 4TB, NTFS
+DISK_FSTYPE="$(pick CONAN_DISK_FSTYPE ntfs3)"
+MOUNT_POINT="$(pick CONAN_MOUNT_POINT /mnt/expansion)"
+DATA_DIR="$(pick CONAN_DATA_DIR "$MOUNT_POINT/conan-server-data")"
+PORT="$(pick CONAN_PUBLIC_PORT 9300)"
 
-# ---- 0. Sync toolchain versions with ConanAutomation ------------------------
-# The conan-server version (and python base image) must ALWAYS match the
-# toolchain pinned in ftdeps/model.py of FurkanTuzemen/ConanAutomation, so the
-# server tracks whatever Conan the automation/CI uses. Every run re-reads the
-# pin; if the repo is unreachable the existing .env values are kept.
-CONAN_AUTOMATION_REPO="${CONAN_AUTOMATION_REPO:-git@github.com:FurkanTuzemen/ConanAutomation.git}"
-sync_user="${SUDO_USER:-$(id -un)}"
-synced_conan=""
-synced_python=""
-tmp_dir="$(sudo -u "$sync_user" mktemp -d)"
-if sudo --preserve-env=SSH_AUTH_SOCK -u "$sync_user" \
-        git clone --quiet --depth 1 "$CONAN_AUTOMATION_REPO" "$tmp_dir/ConanAutomation" 2>/dev/null; then
-    model_py="$tmp_dir/ConanAutomation/ftdeps/model.py"
-    synced_conan="$(grep -Eo 'conan_version: str = "[^"]+"' "$model_py" | head -n1 | grep -Eo '[0-9][0-9.]*' || true)"
-    synced_python="$(grep -Eo 'python_version: str = "[^"]+"' "$model_py" | head -n1 | grep -Eo '[0-9][0-9.]*' || true)"
+command_exists docker || die "Docker is required - run docker/linux/bootstrap.sh from this repo first."
+docker compose version >/dev/null 2>&1 || die "The Docker Compose plugin is required - run docker/linux/bootstrap.sh from this repo first."
+command_exists curl || die "curl is required (apt install curl)"
+
+# ---- 1. Version pin: versions.env, synced with ConanAutomation ---------------
+# The server must ALWAYS run the Conan version pinned in
+# FurkanTuzemen/ConanAutomation (ftdeps/model.py). If the pin moved, rewrite
+# versions.env so the drift shows up in `git diff` and gets committed.
+if [[ "${CONAN_AUTOMATION_SYNC:-1}" != "0" ]]; then
+    repo_url="${CONAN_AUTOMATION_REPO:-git@github.com:FurkanTuzemen/ConanAutomation.git}"
+    tmp_dir="$(sudo -u "$RUN_USER" mktemp -d)"
+    if sudo --preserve-env=SSH_AUTH_SOCK -u "$RUN_USER" \
+            git clone --quiet --depth 1 "$repo_url" "$tmp_dir/ca" 2>/dev/null; then
+        model_py="$tmp_dir/ca/ftdeps/model.py"
+        pin_conan="$(grep -Eo 'conan_version: str = "[^"]+"' "$model_py" | head -n1 | grep -Eo '[0-9][0-9.]*' || true)"
+        pin_python="$(grep -Eo 'python_version: str = "[^"]+"' "$model_py" | head -n1 | grep -Eo '[0-9][0-9.]*' || true)"
+        if [[ -n "$pin_conan" ]]; then
+            log "ConanAutomation pin: conan $pin_conan, python ${pin_python:-?}"
+            if [[ "$pin_conan" != "$(env_get CONAN_SERVER_VERSION "$VERSIONS_FILE")" ]] ||
+               [[ -n "$pin_python" && "$pin_python" != "$(env_get CONAN_PYTHON_VERSION "$VERSIONS_FILE")" ]]; then
+                env_set CONAN_SERVER_VERSION "$pin_conan" "$VERSIONS_FILE"
+                [[ -n "$pin_python" ]] && env_set CONAN_PYTHON_VERSION "$pin_python" "$VERSIONS_FILE"
+                log "versions.env updated to match ConanAutomation - COMMIT this change."
+            fi
+        fi
+    else
+        log "WARNING: could not read ConanAutomation ($repo_url) - using versions.env as is"
+    fi
+    rm -rf "$tmp_dir"
 fi
-rm -rf "$tmp_dir"
-if [[ -n "$synced_conan" ]]; then
-    log "ConanAutomation toolchain: conan $synced_conan, python ${synced_python:-3.11}"
-else
-    log "WARNING: could not read ConanAutomation - keeping the current version pin"
-fi
+SERVER_VERSION="$(env_get CONAN_SERVER_VERSION "$VERSIONS_FILE")"
+PYTHON_VERSION="$(env_get CONAN_PYTHON_VERSION "$VERSIONS_FILE")"
+[[ -n "$SERVER_VERSION" && -n "$PYTHON_VERSION" ]] || die "versions.env is missing CONAN_SERVER_VERSION / CONAN_PYTHON_VERSION"
+[[ -f "$LINUX_DIR/server/constraints/conan-server-$SERVER_VERSION.txt" ]] ||
+    log "WARNING: no dependency lock for conan-server $SERVER_VERSION - run ./lock-deps.sh after this and commit it"
+log "Server version: conan-server $SERVER_VERSION on python $PYTHON_VERSION"
 
-# ---- 1. Persistent mount for the package disk -------------------------------
+# ---- 2. Persistent mount for the package disk --------------------------------
 if [[ ! -e "/dev/disk/by-uuid/$DISK_UUID" ]]; then
-    log "Disk with UUID $DISK_UUID is not connected - plug it in and re-run."
-    exit 1
+    die "Disk with UUID $DISK_UUID is not connected - plug it in and re-run (or set CONAN_DISK_UUID; see: sudo blkid)."
 fi
 if ! grep -q "UUID=$DISK_UUID" /etc/fstab; then
     cp /etc/fstab /etc/fstab.bak.conan-server
-    echo "UUID=$DISK_UUID $MOUNT_POINT $DISK_FSTYPE defaults,nofail,uid=$MOUNT_UID,gid=$MOUNT_GID,umask=022 0 0" >> /etc/fstab
+    if [[ "$DISK_FSTYPE" == ntfs* ]]; then
+        opts="defaults,nofail,uid=$RUN_UID,gid=$RUN_GID,umask=022"
+    else
+        opts="defaults,nofail"
+    fi
+    echo "UUID=$DISK_UUID $MOUNT_POINT $DISK_FSTYPE $opts 0 0" >> /etc/fstab
     systemctl daemon-reload
     log "Added $MOUNT_POINT to /etc/fstab (backup: /etc/fstab.bak.conan-server)"
 else
-    log "fstab entry for UUID=$DISK_UUID already present, skipping"
+    log "fstab entry for UUID=$DISK_UUID already present"
 fi
 mkdir -p "$MOUNT_POINT"
-mountpoint -q "$MOUNT_POINT" || mount "$MOUNT_POINT"
-mkdir -p "$DATA_DIR"
-log "Package storage: $DATA_DIR ($(df -h --output=avail "$MOUNT_POINT" | tail -1 | tr -d ' ') free)"
+if ! mountpoint -q "$MOUNT_POINT"; then
+    if ! mount "$MOUNT_POINT"; then
+        if dmesg 2>/dev/null | tail -n 50 | grep -q 'volume is dirty'; then
+            log "The NTFS volume is marked dirty (unclean unplug/shutdown). See conan-server/docs/troubleshooting.md:"
+            log "  sudo ntfsfix -d /dev/disk/by-uuid/$DISK_UUID && sudo ./bootstrap.sh"
+        fi
+        die "Could not mount $MOUNT_POINT"
+    fi
+fi
+if [[ ! -d "$DATA_DIR" ]]; then
+    mkdir -p "$DATA_DIR"
+    [[ "$DISK_FSTYPE" == ntfs* ]] || chown "$RUN_UID:$RUN_GID" "$DATA_DIR"
+fi
+log "Package storage: $DATA_DIR ($(df -h --output=avail "$DATA_DIR" | tail -1 | tr -d ' ') free)"
 
-# ---- 2. Secrets / server config (.env) --------------------------------------
-ENV_FILE="$SCRIPT_DIR/.env"
+# ---- 3. Secrets / server config (.env) ---------------------------------------
 if [[ ! -f "$ENV_FILE" ]]; then
     ci_password="$(python3 -c 'import secrets; print(secrets.token_urlsafe(18))')"
-    host_ip="$(hostname -I | awk '{print $1}')"
+    # Prefer the Tailscale address: CI runners reach the Pi over the tailnet.
+    public_host="$(tailscale ip -4 2>/dev/null | head -n1 || true)"
+    [[ -n "$public_host" ]] || public_host="$(hostname -I | awk '{print $1}')"
     cat > "$ENV_FILE" <<EOF
 # Generated by bootstrap.sh on $(date '+%Y-%m-%d'). NOT committed to git.
 # See .env.example for what each variable means.
@@ -82,44 +126,68 @@ CONAN_WRITE_USERS=ci
 CONAN_READ_USERS=?
 CONAN_JWT_SECRET=$(python3 -c 'import secrets; print(secrets.token_hex(32))')
 CONAN_UPDOWN_SECRET=$(python3 -c 'import secrets; print(secrets.token_hex(32))')
-CONAN_PUBLIC_HOSTNAME=$host_ip
+CONAN_PUBLIC_HOSTNAME=$public_host
 CONAN_PUBLIC_PORT=$PORT
-CONAN_DATA_DIR=$DATA_DIR
 EOF
-    chown "$MOUNT_UID:$MOUNT_GID" "$ENV_FILE"
-    chmod 600 "$ENV_FILE"
     log "Generated $ENV_FILE (user 'ci' with a random password - see the file)"
 else
-    log ".env already exists, keeping it"
+    log ".env already exists, keeping its users and secrets"
+fi
+# Host settings + version pin are (re)written on every run.
+env_set CONAN_DISK_UUID "$DISK_UUID"
+env_set CONAN_DISK_FSTYPE "$DISK_FSTYPE"
+env_set CONAN_MOUNT_POINT "$MOUNT_POINT"
+env_set CONAN_DATA_DIR "$DATA_DIR"
+env_set CONAN_SERVER_VERSION "$SERVER_VERSION"
+env_set CONAN_PYTHON_VERSION "$PYTHON_VERSION"
+# Side-by-side test instances need their own container AND compose project
+# name, or `up --remove-orphans` / `down` would act on the real server.
+[[ -n "${CONAN_CONTAINER_NAME:-}" ]] && env_set CONAN_CONTAINER_NAME "$CONAN_CONTAINER_NAME"
+[[ -n "${COMPOSE_PROJECT_NAME:-}" ]] && env_set COMPOSE_PROJECT_NAME "$COMPOSE_PROJECT_NAME"
+chown "$RUN_UID:$RUN_GID" "$ENV_FILE" "$VERSIONS_FILE"
+chmod 600 "$ENV_FILE"
+
+# ---- 4. systemd unit: start after the disk mounts, stop before it unmounts ---
+if [[ "${CONAN_INSTALL_SYSTEMD:-1}" != "0" ]] && command_exists systemctl; then
+    unit=/etc/systemd/system/conan-server.service
+    sed -e "s|@LINUX_DIR@|$LINUX_DIR|g" -e "s|@MOUNT_POINT@|$MOUNT_POINT|g" \
+        "$LINUX_DIR/systemd/conan-server.service" > "$unit.new"
+    if ! cmp -s "$unit.new" "$unit" 2>/dev/null; then
+        mv "$unit.new" "$unit"
+        systemctl daemon-reload
+        log "Installed $unit"
+    else
+        rm -f "$unit.new"
+    fi
+    systemctl enable conan-server.service >/dev/null 2>&1
 fi
 
-# Write the synced (or default) toolchain pin into .env - this is what the
-# compose build args read.
-set_env_var() {
-    if grep -q "^$1=" "$ENV_FILE"; then
-        sed -i "s|^$1=.*|$1=$2|" "$ENV_FILE"
-    else
-        echo "$1=$2" >> "$ENV_FILE"
-    fi
-}
-current_conan="$(grep -E '^CONAN_SERVER_VERSION=' "$ENV_FILE" | cut -d= -f2 || true)"
-set_env_var CONAN_SERVER_VERSION "${synced_conan:-${current_conan:-2.7.1}}"
-current_python="$(grep -E '^CONAN_PYTHON_VERSION=' "$ENV_FILE" | cut -d= -f2 || true)"
-set_env_var CONAN_PYTHON_VERSION "${synced_python:-${current_python:-3.11}}"
-log "Server pinned to conan-server $(grep -E '^CONAN_SERVER_VERSION=' "$ENV_FILE" | cut -d= -f2)"
+# ---- 5. Build and start --------------------------------------------------------
+# A container with our name from another compose project would block `up` -
+# e.g. the first deployment (2026-08), which ran under the default project
+# name "linux" before docker-compose.yml set `name: conan-server`. Containers
+# are stateless here - packages live on the disk - so replacing it is safe.
+container="$(env_get CONAN_CONTAINER_NAME)"; container="${container:-conan-server}"
+project="$(env_get COMPOSE_PROJECT_NAME)"; project="${project:-conan-server}"
+owner="$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project"}}' "$container" 2>/dev/null || true)"
+if [[ -n "$owner" && "$owner" != "$project" ]]; then
+    log "Replacing container '$container' from compose project '$owner'"
+    docker rm -f "$container" >/dev/null
+fi
+(cd "$LINUX_DIR" && docker compose up -d --build --remove-orphans)
+if [[ "${CONAN_INSTALL_SYSTEMD:-1}" != "0" ]] && command_exists systemctl; then
+    # Mark the oneshot unit active so the shutdown ordering applies this boot.
+    systemctl start conan-server.service
+fi
 
-# ---- 3. Build and start the server ------------------------------------------
-(cd "$SCRIPT_DIR" && docker compose up -d --build)
-
-# ---- 4. Wait until it answers -----------------------------------------------
+# ---- 6. Wait until it answers ------------------------------------------------
 log "Waiting for the server to answer on port $PORT ..."
 for _ in $(seq 1 30); do
     if curl -fsS "http://127.0.0.1:$PORT/v1/ping" >/dev/null 2>&1; then
         log "Conan server is up."
-        "$SCRIPT_DIR/connection-info.sh"
+        sudo -u "$RUN_USER" "$LINUX_DIR/connection-info.sh"
         exit 0
     fi
     sleep 2
 done
-log "Server did not answer after 60s - check: docker logs conan-server"
-exit 1
+die "Server did not answer after 60s - check: docker logs conan-server"

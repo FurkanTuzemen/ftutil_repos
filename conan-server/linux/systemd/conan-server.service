@@ -1,0 +1,28 @@
+# Installed to /etc/systemd/system/ by bootstrap.sh, which replaces
+# the @...@ placeholders.
+#
+# Why this exists (on top of the container's restart policy):
+#  * Start: RequiresMountsFor= makes the server start only AFTER the package
+#    disk is mounted. Docker's own restart-on-boot can race the USB disk and
+#    fail with "failed to fulfil mount request ... no such file or directory".
+#  * Stop: the same dependency orders the stop BEFORE the disk is unmounted on
+#    shutdown, so the container never holds files open while the NTFS volume is
+#    being unmounted - an unclean NTFS unmount is what marks the volume "dirty"
+#    and makes the next boot refuse to mount it (see conan-server/docs/troubleshooting.md).
+[Unit]
+Description=Conan server (docker compose in @LINUX_DIR@)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+RequiresMountsFor=@MOUNT_POINT@
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=@LINUX_DIR@
+ExecStart=/usr/bin/docker compose up -d
+ExecStop=/usr/bin/docker compose stop
+TimeoutStartSec=600
+
+[Install]
+WantedBy=multi-user.target

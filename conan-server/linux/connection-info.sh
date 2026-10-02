@@ -1,59 +1,57 @@
 #!/usr/bin/env bash
-# Print how to use this machine's Conan remote (server URL, users, client and
-# CI commands). Standalone and reusable: run it any time to re-print the
-# details. bootstrap.sh calls it at the end. Does NOT need root.
+# Print how to reach this machine's Conan remote: URLs, users, client and CI
+# commands. Safe to run any time; bootstrap.sh calls it at the end. No root.
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ENV_FILE="$SCRIPT_DIR/.env"
-
-env_get() {
-    grep -E "^$1=" "$ENV_FILE" 2>/dev/null | head -n1 | cut -d= -f2- || true
-}
+# shellcheck source=lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 port=9300
-users="(no .env found - run bootstrap.sh first)"
+users="(no .env found - run sudo ./bootstrap.sh first)"
 if [[ -r "$ENV_FILE" ]]; then
-    p="$(env_get CONAN_PUBLIC_PORT)"
-    [[ -n "$p" ]] && port="$p"
-    users="$(env_get CONAN_SERVER_USERS | tr ';' '\n' | cut -d: -f1 | paste -sd ',' - | tr ',' ' ')"
+    p="$(env_get CONAN_PUBLIC_PORT)"; [[ -n "$p" ]] && port="$p"
+    users="$(env_get CONAN_SERVER_USERS | tr ';' '\n' | cut -d: -f1 | paste -sd ' ' -)"
+fi
+container="$(env_get CONAN_CONTAINER_NAME)"; container="${container:-conan-server}"
+
+status="unknown (docker not usable by $(id -un))"
+if command_exists docker; then
+    s="$(docker ps -a --filter "name=^${container}\$" --format '{{.Status}}' 2>/dev/null || true)"
+    status="${s:-not created}"
 fi
 
-status="unknown (is Docker installed?)"
-if command -v docker >/dev/null 2>&1; then
-    s="$(docker ps --filter name='^conan-server$' --format '{{.Status}}' 2>/dev/null || true)"
-    if [[ -n "$s" ]]; then status="$s"; else status="not running"; fi
+# Candidate addresses: Tailscale MagicDNS name first, then every IPv4.
+addrs=()
+if command_exists tailscale; then
+    dns="$(tailscale status --self --json 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))' 2>/dev/null || true)"
+    [[ -n "$dns" ]] && addrs+=("$dns|Tailscale MagicDNS")
 fi
-
-# Usable IPv4 addresses, skipping loopback.
-mapfile -t ips < <(hostname -I 2>/dev/null | tr ' ' '\n' | grep -E '^[0-9]+\.' | grep -v '^127\.' || true)
-
-# Label an IPv4 address: Tailscale (100.64.0.0/10), LAN (RFC1918), or blank.
-ip_tag() {
-    case "$1" in
-        100.6[4-9].*|100.[7-9][0-9].*|100.1[0-1][0-9].*|100.12[0-7].*)
-            echo "Tailscale - reachable from anywhere on your tailnet" ;;
-        192.168.*|10.*|172.1[6-9].*|172.2[0-9].*|172.3[0-1].*)
-            echo "LAN" ;;
-        *) echo "" ;;
+while read -r ip; do
+    case "$ip" in
+        100.6[4-9].*|100.[7-9][0-9].*|100.1[0-1][0-9].*|100.12[0-7].*) addrs+=("$ip|Tailscale - reachable from anywhere on the tailnet") ;;
+        192.168.*|10.*|172.1[6-9].*|172.2[0-9].*|172.3[0-1].*)          addrs+=("$ip|LAN") ;;
+        *)                                                               addrs+=("$ip|") ;;
     esac
-}
+done < <(ip -o -4 addr show scope global 2>/dev/null |
+         grep -vE '^[0-9]+: (docker[0-9]*|br-[0-9a-f]+|veth[^ ]*) ' |   # skip Docker's internal bridges
+         awk '{print $4}' | cut -d/ -f1 || true)
 
 echo ""
-echo "================= Conan remote on this machine ================="
-echo "  Container: $status"
-echo "  Users:     $users  (passwords: $ENV_FILE on this machine)"
+echo "================= Conan remote on $(hostname) ================="
+echo "  Container:  $status"
+echo "  Advertised: $(env_get CONAN_PUBLIC_HOSTNAME):$port  (CONAN_PUBLIC_HOSTNAME - upload/download URLs use this)"
+echo "  Users:      $users  (passwords: $ENV_FILE)"
 echo ""
 echo "  Add the remote from another machine:"
-for ip in "${ips[@]}"; do
-    tag="$(ip_tag "$ip")"
-    printf '    conan remote add ftpi http://%s:%s%s\n' "$ip" "$port" "${tag:+   # $tag}"
+for a in "${addrs[@]}"; do
+    host="${a%%|*}"; tag="${a#*|}"
+    printf '    conan remote add ftpi http://%s:%s%s\n' "$host" "$port" "${tag:+   # $tag}"
 done
 echo ""
-echo "  Then log in (required for download and upload):"
+echo "  Then log in (required for download AND upload):"
 echo "    conan remote login ftpi <user>"
 echo ""
-echo "  GitHub Actions: store the URL as the CONAN_REMOTE_URL variable and the"
-echo "  password as the CONAN_REMOTE_PASSWORD secret - see conan-server/examples/."
+echo "  Health check:  ./doctor.sh"
+echo "  GitHub Actions: see conan-server/examples/github-actions-conan.yml"
 echo "================================================================"
 echo ""
