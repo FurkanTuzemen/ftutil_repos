@@ -47,6 +47,10 @@ the `$MFTMirr` mismatch and the journal. It also marks the volume so that
 Windows checks it at the next mount.
 
 **Proper fix:** plug the disk into a Windows machine and run `chkdsk X: /f`.
+If chkdsk answers `Access is denied` even from an elevated shell (this
+happens in restricted or automated shells), use the Storage-service
+equivalent: `Repair-Volume -DriveLetter X -Scan`. If that finds errors, run
+`Repair-Volume -DriveLetter X -OfflineScanAndFix`.
 Do this whenever convenient after a quick fix, especially because this disk
 also holds personal data.
 
@@ -111,6 +115,11 @@ was logged once, and no CI job ran against the cache in that period.
   `ntfsfix` command.
 - Packages moved from the NTFS disk to the SD card (ext4,
   `/srv/conan-server-data`), which removes this failure mode.
+  The Seagate went back to Windows duty. A full online check there
+  (`Repair-Volume -DriveLetter I -Scan`, the same scan chkdsk does) reported
+  `NoErrorsFound`, and `fsutil dirty query` showed it not dirty, so no
+  offline repair was needed. The old copy of the store is still at
+  `\conan-server-data` on that disk.
 - Still open: alerting. Ideas: a cron'd `doctor.sh` that sends a
   notification on failure, or a scheduled GitHub Actions run of
   `conan_server_test`, which fails visibly if the server is down.
