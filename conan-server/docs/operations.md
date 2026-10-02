@@ -61,7 +61,8 @@ CONAN_WRITE_USERS=ci                      # who may upload (empty = all users)
 CONAN_READ_USERS=?                        # "?" = any logged-in user, "*" = anonymous too
 ```
 
-Apply with `docker compose up -d`. Generate passwords with
+Apply with `docker compose up -d`, then run `./encrypt-env.sh` and commit
+`.env.age` (see [Backup](#backup)). Generate passwords with
 `python3 -c "import secrets; print(secrets.token_urlsafe(18))"`. After changing
 the `ci` password, update the `CONAN_REMOTE_PASSWORD` secret in every
 consumer repo.
@@ -71,6 +72,7 @@ consumer repo.
 Replace `CONAN_JWT_SECRET` and/or `CONAN_UPDOWN_SECRET` in `.env` with new
 `secrets.token_hex(32)` values, then run `docker compose up -d`. Existing login
 tokens become invalid, and clients just log in again (`conan remote login`).
+Afterwards, run `./encrypt-env.sh` and commit `.env.age`.
 
 ## Backup
 
@@ -84,7 +86,14 @@ This produces two files:
 - `conan-server-env-<stamp>`: a copy of `.env`, chmod 600. It holds secrets,
   so keep it private.
 
-The server is stopped for the few seconds the archive takes. The image is
+The server is stopped for the few seconds the archive takes.
+
+**Secrets are also in git, encrypted.** `conan-server/linux/.env.age` is
+`.env` encrypted with [age](https://age-encryption.org) to the public key in
+`secrets/age-recipients.txt`. Only the private key on Furkan's PC
+(`C:\Users\Furkan\.age\ftutil_repos.key`, also kept in a password manager)
+can decrypt it. Whenever `.env` changes, run `./encrypt-env.sh` on the server
+and commit the result. Details are in [`secrets/README.md`](../../secrets/README.md). The image is
 not backed up because it rebuilds from the repo. Since this is a *cache*,
 losing the packages costs only rebuild time. Losing `.env` means creating
 new credentials and updating every consumer.
@@ -97,6 +106,8 @@ On a fresh or replacement host, after steps 1–5 of
 ```bash
 cd ~/ftutil_repos/conan-server/linux
 cp /backup/conan-server-env-<stamp> .env && chmod 600 .env
+#   ...or, without a backup: decrypt .env.age on the PC that has the key
+#   (age -d -i ~/.age/ftutil_repos.key .env.age > .env), copy it here, chmod 600
 # check CONAN_PUBLIC_HOSTNAME, CONAN_DATA_DIR (and CONAN_DISK_* if using a dedicated disk) in .env
 sudo mkdir -p /srv/conan-server-data
 sudo tar -xzf /backup/conan-server-data-<stamp>.tgz -C /srv/conan-server-data

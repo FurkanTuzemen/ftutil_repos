@@ -7,3 +7,5 @@
 # shebang when the tree is synced to a Raspberry Pi.
 net-failover/linux/net-failover text eol=lf
 net-failover/test/bin/* text eol=lf
+# age-encrypted secrets (secrets/README.md): never touch line endings
+*.age -text

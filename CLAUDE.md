@@ -24,7 +24,11 @@ Reproducible bootstrap/automation scripts to set up tools (OpenSSH, Docker, Git,
 
 - **Windows key auth:** accounts in the Administrators group are authorized via the GLOBAL `C:\ProgramData\ssh\administrators_authorized_keys` (per sshd_config's `Match Group administrators`), NOT `~\.ssh\authorized_keys`. That file must be owned by Administrators/SYSTEM and writable only by them or `sshd` silently ignores it. `authorize-ssh-key.ps1` handles this; it uses **`icacls`** (not `Set-Acl`) for the ACL because `Set-Acl` on an already-protected file tries to write the SACL and fails with `SeSecurityPrivilege`.
 - **Empty passphrase:** `-N ''` in `new-ssh-key.ps1` is reliable under PowerShell 7; on Windows PowerShell 5.1 the empty arg can be dropped (ssh-keygen then prompts). Default is to prompt, which works everywhere.
-- **No secrets** committed; scripts must be safe to run unattended.
+- **No plaintext secrets** committed; scripts must be safe to run unattended.
+  A secret that must survive machine loss may be committed **age-encrypted**
+  (`<file>.age`) to `secrets/age-recipients.txt`; see `secrets/README.md`.
+  Encrypt on the machine holding the plaintext; the private key
+  (`C:\Users\Furkan\.age\ftutil_repos.key`) never leaves Furkan's PC.
 - `.gitattributes` forces **LF** on `*.sh` and **CRLF** on `*.ps1`.
 
 ## net-failover notes (non-obvious details)

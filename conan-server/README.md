@@ -9,8 +9,8 @@ per configuration) instead of rebuilding them, and push back anything they
 had to build.
 
 Everything needed to rebuild the server from a blank SD card is in this
-directory. The secrets (`linux/.env`) and the package store are
-not, and `linux/backup.sh` backs both up.
+directory. The secrets are here only encrypted (`linux/.env.age`, see
+[`../secrets/`](../secrets/README.md)), and the package store is not here at all, and `linux/backup.sh` backs both up.
 
 ## Current deployment
 
@@ -64,6 +64,8 @@ linux/
   connection-info.sh            prints URLs, users and client commands
   smoke-test.sh                 curl-only check from any client machine
   authorize-monitor.sh          authorize conan-monitor's key (forced command: doctor.sh)
+  encrypt-env.sh                .env -> .env.age (age-encrypted, committed; key on Furkan's PC)
+  .env.age                      encrypted copy of the server's .env
   backup.sh                     package store + .env -> backup dir
   lock-deps.sh                  regenerates server/constraints/ after a version bump
   lib.sh                        conan-server helpers on top of lib/linux/common.sh
