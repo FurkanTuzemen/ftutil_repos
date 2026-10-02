@@ -1,5 +1,6 @@
 {
   "target": "ftbeepi.tailad1eae.ts.net",
+  "sshHost": "ftbeepi.local",
   "sshUser": "furkan",
   "sshKey": "/var/lib/conan-monitor/.ssh/id_ed25519",
   "port": 9300,
@@ -10,7 +11,7 @@
     "port": 465,
     "user": "resend",
     "password": "CHANGE_ME (Resend API key with sending access)",
-    "from": "Conan monitor <conan-monitor@mail.furkantuzemen.com>",
+    "from": "Conan monitor <admin@gorucusu.com>",
     "to": "furkantuzemen@gmail.com"
   }
 }

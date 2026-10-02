@@ -1,6 +1,7 @@
 # Troubleshooting
 
-Start with `./doctor.sh` on the Pi (in `~/ftutil_repos/conan-server/linux`). It checks the whole chain in
+Start with `./doctor.sh` on the Pi (in `~/ftutil_repos/conan-server/linux`).
+Alert emails from conan-monitor already include its full output. It checks the whole chain in
 dependency order and prints the fix for every `[FAIL]`. The first failure is
 usually the cause, and everything after it follows from it.
 
@@ -21,6 +22,16 @@ usually the cause, and everything after it follows from it.
 | `docker compose` errors `run bootstrap.sh - it copies versions.env into .env` | `.env` is missing the version keys | `sudo ./bootstrap.sh` |
 | Build: `WARNING: no lock file for conan-server X` | The version was bumped without locking deps | `./lock-deps.sh`, then commit |
 | Server came back after a reboot but the unit shows `failed` | The disk mounted late; the unit depends on the mount | `sudo systemctl restart conan-server`; check `journalctl -u conan-server -b` |
+
+## Alerts (conan-monitor)
+
+| Symptom | Fix |
+|---|---|
+| Email `[conan-server] FAIL: ftbeepi` | Read the `[FAIL]` lines in the email; they're from `doctor.sh` and include the fix. |
+| Email `[conan-server] UNREACHABLE: ftbeepi` | ftbitpi can't ssh to ftbeepi: the Pi is off or hung, it's off the network, or ftbeepi.local doesn't resolve. If HTTP in the email is OK, the server works and only the monitor path is broken. |
+| No emails at all, but you suspect a problem | On ftbitpi: `journalctl -u conan-monitor -n 20`, `systemctl list-timers conan-monitor.timer` |
+| Monitor log: `ssh to the server timed out` | `sshHost` points to a Tailscale address with Tailscale SSH on. Use the LAN name (see `monitor/RUNNING.md`). |
+| Monitor log: `550 This API key is not authorized to send emails from …` | `mail.from` must be on a domain the Resend key may send from (currently gorucusu.com). |
 
 ## Dirty NTFS volume
 
@@ -121,6 +132,8 @@ was logged once, and no CI job ran against the cache in that period.
   `NoErrorsFound`, and `fsutil dirty query` showed it not dirty, so no
   offline repair was needed. It's no longer mounted on the Pi (fstab entry
   removed).
-- Still open: alerting. Ideas: a cron'd `doctor.sh` that sends a
-  notification on failure, or a scheduled GitHub Actions run of
-  `conan_server_test`, which fails visibly if the server is down.
+- Alerting: `conan-server/monitor/` (conan-monitor) runs on ftbitpi every
+  5 minutes. It runs `doctor.sh` over a restricted ssh key, pings the port,
+  and emails furkantuzemen@gmail.com on failure, with a reminder every 24 h
+  and a recovery email. Tested end to end on 2026-10-02: server stopped →
+  ALERT after 2 runs → started → RECOVERED.

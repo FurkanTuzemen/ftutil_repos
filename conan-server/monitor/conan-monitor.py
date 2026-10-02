@@ -3,9 +3,11 @@
 
 Runs from a systemd timer (every 5 min) on the monitor host. Each run:
 
-  1. ssh to the server with a key that is locked to one forced command,
+  1. ssh to `sshHost` with a key that is locked to one forced command,
      linux/doctor.sh (see linux/authorize-monitor.sh). Exit 0 = healthy,
-     1 = a check failed, 255/timeout = server unreachable.
+     1 = a check failed, 255/timeout = server unreachable. Use the LAN name
+     here if the server has Tailscale SSH enabled: Tailscale intercepts ssh
+     on its tailnet address and demands an interactive browser check.
   2. GET http://<target>:<port>/v1/ping from here - what clients see.
 
 Alerting (state in /var/lib/conan-monitor/state.json):
@@ -53,6 +55,7 @@ def log(msg):
 def load_config():
     cfg = json.loads(CONFIG.read_text())
     cfg.setdefault("sshUser", "furkan")
+    cfg.setdefault("sshHost", cfg["target"])
     cfg.setdefault("sshKey", "/var/lib/conan-monitor/.ssh/id_ed25519")
     cfg.setdefault("port", 9300)
     cfg.setdefault("failuresBeforeAlert", 2)
@@ -68,7 +71,7 @@ def check(cfg):
     known_hosts = str(Path(key).parent / "known_hosts")
     cmd = ["ssh", "-i", key, "-o", "BatchMode=yes", "-o", "ConnectTimeout=15",
            "-o", "StrictHostKeyChecking=accept-new", "-o", f"UserKnownHostsFile={known_hosts}",
-           f"{cfg['sshUser']}@{cfg['target']}"]
+           f"{cfg['sshUser']}@{cfg['sshHost']}"]
     try:
         p = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
         rc, doctor = p.returncode, (p.stdout + p.stderr).strip()

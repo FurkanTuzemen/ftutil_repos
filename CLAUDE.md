@@ -100,6 +100,12 @@ Reproducible bootstrap/automation scripts to set up tools (OpenSSH, Docker, Git,
   it must be the Tailscale address CI runners reach, not localhost/LAN.
 - **`CONAN_READ_USERS=?`** = authenticated users only; an *empty* store still
   answers anonymous searches with 200 `[]` (nothing to permission-check).
+- **conan-monitor runs on ftbitpi** (`conan-server/monitor/`): ssh to the
+  server with a `restrict,command="…/doctor.sh"` key + HTTP ping, email via
+  Resend. Two traps: ftbeepi has **Tailscale SSH** on, so ssh to its tailnet
+  address hangs on an interactive browser check (use `ftbeepi.local`); and the
+  Resend key is domain-restricted to **gorucusu.com** (`550 … not authorized
+  to send emails from …` for any other `from`).
 - **Testing without touching production:** run a second instance on the Pi
   with `sudo CONAN_INSTALL_SYSTEMD=0 CONAN_CONTAINER_NAME=conan-server-test
   COMPOSE_PROJECT_NAME=conan-server-test CONAN_PUBLIC_PORT=9301 CONAN_DATA_DIR=/var/tmp/conan-test-data ./bootstrap.sh`

@@ -21,6 +21,7 @@ not, and `linux/backup.sh` backs both up.
 | Server | `conan-server` **2.7.1** on `python:3.11-slim` (pinned in [`versions.env`](versions.env)) |
 | Storage | Dedicated Samsung M3 Portable 1 TB, **ext4** (label `conan_server`, UUID `b050ba22-063c-40a7-b2da-9e46c874ea86`), mounted at `/mnt/conan`; packages in `/mnt/conan/conan-server-data`. Without a dedicated disk the default is the SD card (`/srv/conan-server-data`). |
 | Users | `ci` (read + write); anonymous access is refused |
+| Alerts | conan-monitor on `ftbitpi` checks every 5 min and emails furkantuzemen@gmail.com ([monitor/RUNNING.md](monitor/RUNNING.md)) |
 | Consumers | GitHub Actions through Tailscale (e.g. [`conan_server_test`](https://github.com/FurkanTuzemen/conan_server_test)); dev PCs |
 
 ## Quickstart
@@ -62,6 +63,7 @@ linux/
   doctor.sh                     health check: disk -> mount -> unit -> container -> HTTP -> login
   connection-info.sh            prints URLs, users and client commands
   smoke-test.sh                 curl-only check from any client machine
+  authorize-monitor.sh          authorize conan-monitor's key (forced command: doctor.sh)
   backup.sh                     package store + .env -> backup dir
   lock-deps.sh                  regenerates server/constraints/ after a version bump
   lib.sh                        conan-server helpers on top of lib/linux/common.sh
@@ -73,6 +75,7 @@ linux/
     entrypoint.py               renders server.conf from env vars, then execs conan_server
     server.conf.template
   systemd/conan-server.service  starts after the storage mounts, stops before it unmounts
+monitor/                        conan-monitor: runs on a second host, emails on failure (install.sh, RUNNING.md)
 windows/install.ps1             installs the pinned Conan client, registers the remote
 examples/github-actions-conan.yml
 docs/
@@ -90,6 +93,7 @@ docs/
   - a systemd unit tied to the storage mount
   - `doctor.sh` and `backup.sh`
   - log rotation
+  - email alerts from a second host (conan-monitor on ftbitpi)
   - the docs in `docs/`
   - packages moved off the NTFS USB disk: briefly to the SD card, then to a
     dedicated 1 TB ext4 disk, so a dirty NTFS volume can't take the server

@@ -12,6 +12,15 @@ systemctl status conan-server       # boot unit
 journalctl -u conan-server -b       # why the unit did or didn't start this boot
 ```
 
+## Alerts
+
+conan-monitor on **ftbitpi** checks the server every 5 minutes and emails
+furkantuzemen@gmail.com when it breaks, with a reminder every 24 h and a
+recovery email. See [`../monitor/RUNNING.md`](../monitor/RUNNING.md). For
+planned maintenance, pause it first so it doesn't send alerts:
+`sudo systemctl disable --now conan-monitor.timer` on ftbitpi (`enable --now`
+afterwards).
+
 ## Start, stop, restart
 
 ```bash

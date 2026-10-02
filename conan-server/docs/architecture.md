@@ -30,6 +30,7 @@
 | Version pin | `conan-server/versions.env`, committed; bootstrap keeps it equal to ConanAutomation's toolchain | `versions.env` |
 | Package store | Plain files in `/srv/conan-server-data` on the root filesystem, bind-mounted to `/data`. Optionally on a dedicated disk (`CONAN_DISK_UUID`). | `CONAN_DATA_DIR` |
 | Boot ordering | systemd oneshot unit that runs `docker compose up -d` after the data directory's filesystem is mounted and `docker compose stop` before it is unmounted | `linux/systemd/conan-server.service` |
+| Monitoring | conan-monitor on ftbitpi: `doctor.sh` over an ssh key restricted to that command (LAN), plus an HTTP ping over Tailscale, every 5 min; emails via Resend | `monitor/` |
 | Network | Tailscale on the host. The server speaks plain HTTP and is never exposed to the internet. | (host setup; see setup doc) |
 
 ## Request flow
