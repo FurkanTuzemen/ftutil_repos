@@ -13,9 +13,9 @@
 │  │  conan_server (Bottle, HTTP)     │                                       │
 │  │  /data ──────────────────────────┼──bind──┐                              │
 │  └──────────────────────────────────┘        │                              │
-│                                    /srv/conan-server-data                   │
-│  SD card (ext4): OS, Docker, ~/ftutil_repos, conan-server/linux/.env, and   │
-│                  the package store above                                    │
+│                                    /mnt/conan/conan-server-data             │
+│                                    (USB Samsung M3 1 TB, ext4)              │
+│  SD card (ext4): OS, Docker, ~/ftutil_repos, conan-server/linux/.env        │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 

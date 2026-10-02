@@ -113,8 +113,9 @@ was logged once, and no CI job ran against the cache in that period.
   and prints the fix.
 - `bootstrap.sh` recognises a dirty volume when mounting fails and prints the
   `ntfsfix` command.
-- Packages moved from the NTFS disk to the SD card (ext4,
-  `/srv/conan-server-data`), which removes this failure mode.
+- Packages moved off the NTFS disk onto ext4: first the SD card, then a
+  dedicated Samsung 1 TB ext4 disk at `/mnt/conan`. That removes this
+  failure mode.
   The Seagate went back to Windows duty. A full online check there
   (`Repair-Volume -DriveLetter I -Scan`, the same scan chkdsk does) reported
   `NoErrorsFound`, and `fsutil dirty query` showed it not dirty, so no

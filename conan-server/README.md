@@ -2,7 +2,7 @@
 
 Self-hosted **Conan 2 remote**. It runs the official
 [`conan-server`](https://pypi.org/project/conan-server/) in Docker on a
-Raspberry Pi, keeps packages on the Pi's SD card (ext4), and is reachable over
+Raspberry Pi, keeps packages on an ext4 filesystem (a dedicated USB disk, or the SD card by default), and is reachable over
 Tailscale. It serves as a binary cache: CI jobs and dev machines download
 prebuilt dependencies (recipes plus the built `.dll`/`.lib`/`.so`/headers,
 per configuration) instead of rebuilding them, and push back anything they
@@ -19,7 +19,7 @@ not, and `linux/backup.sh` backs both up.
 | Host | `ftbeepi`, Raspberry Pi 5 Model B (8 GB), Raspberry Pi OS / Debian 13 *trixie*, arm64 |
 | URL (tailnet) | `http://100.85.113.90:9300`, `http://ftbeepi.tailad1eae.ts.net:9300` |
 | Server | `conan-server` **2.7.1** on `python:3.11-slim` (pinned in [`versions.env`](versions.env)) |
-| Storage | Root filesystem (64 GB SD card, ext4): `/srv/conan-server-data` (`CONAN_DISK_UUID=none`). A dedicated disk is optional. |
+| Storage | Dedicated Samsung M3 Portable 1 TB, **ext4** (label `conan_server`, UUID `b050ba22-063c-40a7-b2da-9e46c874ea86`), mounted at `/mnt/conan`; packages in `/mnt/conan/conan-server-data`. Without a dedicated disk the default is the SD card (`/srv/conan-server-data`). |
 | Users | `ci` (read + write); anonymous access is refused |
 | Consumers | GitHub Actions through Tailscale (e.g. [`conan_server_test`](https://github.com/FurkanTuzemen/conan_server_test)); dev PCs |
 
@@ -91,5 +91,6 @@ docs/
   - `doctor.sh` and `backup.sh`
   - log rotation
   - the docs in `docs/`
-  - packages moved from the NTFS USB disk to the SD card (ext4), so a dirty
-    NTFS volume can't take the server down again
+  - packages moved off the NTFS USB disk: briefly to the SD card, then to a
+    dedicated 1 TB ext4 disk, so a dirty NTFS volume can't take the server
+    down again

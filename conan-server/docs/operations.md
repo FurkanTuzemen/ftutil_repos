@@ -126,8 +126,11 @@ remove the leftovers: `docker network rm linux_default` and
 
 On 2026-10-02 the packages were also moved off the NTFS Seagate disk
 (`/mnt/expansion/conan-server-data`) to `/srv/conan-server-data`, following
-the procedure above. The old copy on the Seagate was left in place as a
-fallback and can be deleted.
+the procedure above. Later that day they moved to a dedicated ext4 disk
+(Samsung M3 Portable 1 TB, formatted from Windows through WSL:
+`wsl --mount \.\PHYSICALDRIVE<n> --bare`, then `parted` + `mkfs.ext4 -L
+conan_server -m 1`) mounted at `/mnt/conan`. The copies on the Seagate and in
+`/srv/conan-server-data` were left in place as fallbacks and can be deleted.
 
 ## Housekeeping
 
