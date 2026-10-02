@@ -36,6 +36,8 @@ sudo ./bootstrap.sh
 | `smoke-test.sh <url> <user>` | no | curl-only check, runnable from any client |
 | `backup.sh <dir>` | yes | package store + `.env` → backup dir |
 | `lock-deps.sh` | no | lock pip deps after a version bump |
+| `encrypt-env.sh` | no | `.env` → `.env.age` (age-encrypted, committed); run after changing `.env` |
+| `authorize-monitor.sh '<key>'` | no | let conan-monitor run `doctor.sh` over ssh |
 
 ## Day-2
 
