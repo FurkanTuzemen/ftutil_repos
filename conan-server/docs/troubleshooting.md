@@ -119,8 +119,8 @@ was logged once, and no CI job ran against the cache in that period.
   The Seagate went back to Windows duty. A full online check there
   (`Repair-Volume -DriveLetter I -Scan`, the same scan chkdsk does) reported
   `NoErrorsFound`, and `fsutil dirty query` showed it not dirty, so no
-  offline repair was needed. The old copy of the store is still at
-  `\conan-server-data` on that disk.
+  offline repair was needed. It's no longer mounted on the Pi (fstab entry
+  removed).
 - Still open: alerting. Ideas: a cron'd `doctor.sh` that sends a
   notification on failure, or a scheduled GitHub Actions run of
   `conan_server_test`, which fails visibly if the server is down.

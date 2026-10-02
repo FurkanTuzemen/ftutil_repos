@@ -129,8 +129,10 @@ On 2026-10-02 the packages were also moved off the NTFS Seagate disk
 the procedure above. Later that day they moved to a dedicated ext4 disk
 (Samsung M3 Portable 1 TB, formatted from Windows through WSL:
 `wsl --mount \.\PHYSICALDRIVE<n> --bare`, then `parted` + `mkfs.ext4 -L
-conan_server -m 1`) mounted at `/mnt/conan`. The copies on the Seagate and in
-`/srv/conan-server-data` were left in place as fallbacks and can be deleted.
+conan_server -m 1`) mounted at `/mnt/conan`. The old copies (on the Seagate and in
+`/srv/conan-server-data`) were checked to be identical and then deleted, and
+the Seagate's line was removed from `/etc/fstab` (backup:
+`/etc/fstab.bak.before-seagate-removal`).
 
 ## Housekeeping
 
