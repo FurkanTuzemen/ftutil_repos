@@ -10,7 +10,7 @@
 │  ┌─────▼────────────────────────────┐   systemd: conan-server.service       │
 │  │ container "conan-server"         │   (RequiresMountsFor=<data dir>)      │
 │  │  entrypoint.py → server.conf     │                                       │
-│  │  conan_server (Bottle, HTTP)     │                                       │
+│  │  gunicorn → conan_server app     │                                       │
 │  │  /data ──────────────────────────┼──bind──┐                              │
 │  └──────────────────────────────────┘        │                              │
 │                                    /mnt/conan/conan-server-data             │
@@ -23,8 +23,8 @@
 
 | Piece | What it is | Where it's defined |
 |---|---|---|
-| Image `ftutil/conan-server:<ver>` | `python:<ver>-slim` + `conan-server==<ver>` with locked transitive deps. It contains no credentials. | `linux/server/Dockerfile`, `linux/server/constraints/` |
-| Entrypoint | Renders `~/.conan_server/server.conf` from env vars at every start, then `exec conan_server` | `linux/server/entrypoint.py`, `linux/server/server.conf.template` |
+| Image `ftutil/conan-server:<ver>` | `python:<ver>-slim` + `conan-server==<ver>` + `gunicorn` with locked transitive deps. It contains no credentials. | `linux/server/Dockerfile`, `linux/server/constraints/` |
+| Entrypoint | Renders `~/.conan_server/server.conf` from env vars at every start, then execs gunicorn (2 processes × 8 threads, `CONAN_SERVER_WORKERS`/`_THREADS`) serving `conans.server.server_launcher:app` | `linux/server/entrypoint.py`, `linux/server/server.conf.template` |
 | Container | `restart: unless-stopped`, `init: true`, health check on `/v1/ping` every 30 s, json-file logs capped at 3×10 MB | `linux/docker-compose.yml` |
 | Config + secrets | `linux/.env`, generated once by bootstrap; gitignored, chmod 600 | `linux/.env.example` documents every key |
 | Version pin | `conan-server/versions.env`, committed; bootstrap keeps it equal to ConanAutomation's toolchain | `versions.env` |
@@ -67,8 +67,14 @@ Windows, Linux and macOS binaries, because it never runs them.
 
 - **Official `conan_server`, not Artifactory CE.** It's small, has no JVM,
   fits comfortably on a Pi, and is enough for one person's CI cache. Downsides:
-  it runs a single-threaded Bottle/WSGIRef server, it has no web UI, and
-  managing users means editing `.env`.
+  it has no web UI, and managing users means editing `.env`.
+- **gunicorn, not `conan_server`'s built-in server.** The `conan_server`
+  command runs Bottle on WSGIRef: one request at a time, listen backlog 5.
+  On 2026-10-03, ~14 GitHub-hosted runners hitting it at once over Tailscale
+  filled the backlog while it streamed large binaries; the kernel then dropped
+  new SYNs and almost every job failed with `ConnectTimeoutError`. The image
+  now runs the same Bottle app under gunicorn (gthread workers, backlog 2048),
+  the setup Conan's docs recommend.
 - **Plain HTTP + Tailscale instead of TLS.** The tailnet already encrypts and
   authenticates traffic, and GitHub runners join it for the length of a job
   (`tag:ci`). Nothing is port-forwarded.

@@ -24,6 +24,8 @@ services:
       CONAN_UPDOWN_SECRET: ${CONAN_UPDOWN_SECRET:?set it in .env}
       CONAN_PUBLIC_HOSTNAME: ${CONAN_PUBLIC_HOSTNAME:?set it in .env}
       CONAN_PUBLIC_PORT: ${CONAN_PUBLIC_PORT:-9300}
+      CONAN_SERVER_WORKERS: ${CONAN_SERVER_WORKERS:-}
+      CONAN_SERVER_THREADS: ${CONAN_SERVER_THREADS:-}
     volumes:
       # Package storage on the external disk. create_host_path is off so a
       # missing disk mount fails loudly instead of silently writing packages
