@@ -1,5 +1,7 @@
 # Exact transitive dependencies of conan-server 2.7.1 (python 3.11-slim, arm64),
 # captured from the image that ran in production 2026-08-03 .. today.
+# gunicorn (the HTTP server, see entrypoint.py) added 2026-10-03, resolved
+# against these exact pins.
 # Regenerate with linux/lock-deps.sh when CONAN_SERVER_VERSION changes.
 bottle==0.12.25
 certifi==2026.7.22
@@ -7,6 +9,7 @@ charset-normalizer==3.4.9
 colorama==0.4.6
 distro==1.8.0
 fasteners==0.20
+gunicorn==26.2.0
 idna==3.18
 Jinja2==3.1.6
 MarkupSafe==3.0.3

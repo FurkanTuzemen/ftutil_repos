@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Render ~/.conan_server/server.conf from environment variables, then exec
-conan_server. All credentials/config come from the compose .env file, so the
-image itself stays generic and rebuildable anywhere."""
+gunicorn serving conan_server's app. All credentials/config come from the
+compose .env file, so the image itself stays generic and rebuildable anywhere."""
 
 import os
 import sys
@@ -59,7 +59,26 @@ def main():
         f.write(conf)
     os.chmod(conf_path, 0o600)
 
-    os.execvp("conan_server", ["conan_server"])
+    # Serve the same Bottle app conan_server builds, but with gunicorn instead of
+    # conan_server's own WSGIRef server: that one handles a single request at a
+    # time with a listen backlog of 5, so while it streams one large binary,
+    # concurrent CI runners' connects overflow the backlog and time out.
+    # --preload builds the app (and runs conan's config migration) once, before
+    # forking workers.
+    workers = env("CONAN_SERVER_WORKERS") or "2"
+    threads = env("CONAN_SERVER_THREADS") or "8"
+    os.execvp("gunicorn", [
+        "gunicorn",
+        "--bind", "0.0.0.0:9300",
+        "--worker-class", "gthread",
+        "--workers", workers,
+        "--threads", threads,
+        "--timeout", "300",
+        "--backlog", "2048",
+        "--preload",
+        "--access-logfile", "-",
+        "conans.server.server_launcher:app",
+    ])
 
 
 if __name__ == "__main__":

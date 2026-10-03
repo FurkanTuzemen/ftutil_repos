@@ -74,7 +74,7 @@ linux/
   server/
     Dockerfile                  python:<ver>-slim + conan-server==<ver> with locked transitive deps
     constraints/                per-version pip lock files
-    entrypoint.py               renders server.conf from env vars, then execs conan_server
+    entrypoint.py               renders server.conf from env vars, then execs gunicorn (conan_server app)
     server.conf.template
   systemd/conan-server.service  starts after the storage mounts, stops before it unmounts
 monitor/                        conan-monitor: runs on a second host, emails on failure (install.sh, RUNNING.md)

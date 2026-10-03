@@ -104,6 +104,12 @@ Reproducible bootstrap/automation scripts to set up tools (OpenSSH, Docker, Git,
   it must be the Tailscale address CI runners reach, not localhost/LAN.
 - **`CONAN_READ_USERS=?`** = authenticated users only; an *empty* store still
   answers anonymous searches with 200 `[]` (nothing to permission-check).
+- **Served by gunicorn, never by the `conan_server` command.** Its built-in
+  WSGIRef server handles one request at a time with a listen backlog of 5;
+  under concurrent GitHub-hosted runners (slow WAN downloads) the backlog
+  overflows and clients get `ConnectTimeoutError` even though the Pi is idle
+  and the Tailscale filter allows them. The entrypoint execs gunicorn on
+  `conans.server.server_launcher:app` instead.
 - **conan-monitor runs on ftbitpi** (`conan-server/monitor/`): ssh to the
   server with a `restrict,command="…/doctor.sh"` key + HTTP ping, email via
   Resend. Two traps: ftbeepi has **Tailscale SSH** on, so ssh to its tailnet
